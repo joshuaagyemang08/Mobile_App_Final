@@ -81,7 +81,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _StatsRow(usage: usage),
             const SizedBox(height: 16),
             if (usage.todayEntries.isNotEmpty) ...[
-              _SectionHeader('App Breakdown'),
+              const _SectionHeader('App Breakdown'),
               const SizedBox(height: 8),
               ...usage.todayEntries.map((e) {
                 final percent = usage.totalMinutesToday > 0 ? e.durationMinutes / usage.totalMinutesToday : 0.0;

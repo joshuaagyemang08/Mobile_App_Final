@@ -44,9 +44,7 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
 
   Future<void> _initCooldown() async {
     final usage = context.read<UsageProvider>();
-    final endTime = await context.read<SettingsProvider>().settings.dailyLimitMinutes.toString() != null
-        ? await _getCooldownEnd()
-        : null;
+    final endTime = await _getCooldownEnd();
 
     if (endTime == null || DateTime.now().isAfter(endTime)) {
       setState(() => _cooldownExpired = true);

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
 import '../../providers/settings_provider.dart';
 
@@ -12,6 +13,7 @@ class ForgotPinScreen extends StatefulWidget {
 
 class _ForgotPinScreenState extends State<ForgotPinScreen> {
   final _answerCtrl = TextEditingController();
+  final _answerCtrl2 = TextEditingController();
   final _newPinCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
   String? _error;
@@ -21,6 +23,7 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
   @override
   void dispose() {
     _answerCtrl.dispose();
+    _answerCtrl2.dispose();
     _newPinCtrl.dispose();
     _confirmCtrl.dispose();
     super.dispose();
@@ -29,19 +32,21 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
   Future<void> _verifyAnswer() async {
     setState(() { _loading = true; _error = null; });
     final sp = context.read<SettingsProvider>();
-    final ok = await sp.verifySecurityAnswer(_answerCtrl.text.trim());
+    final ok1 = await sp.verifySecurityAnswer(_answerCtrl.text.trim());
+    final ok2 = await sp.verifySecurityAnswer2(_answerCtrl2.text.trim());
+    if (!mounted) return;
     setState(() => _loading = false);
 
-    if (ok) {
+    if (ok1 && ok2) {
       setState(() => _step2 = true);
     } else {
-      setState(() => _error = 'Incorrect answer. Please try again.');
+      setState(() => _error = 'Both answers must match. Please try again.');
     }
   }
 
   Future<void> _setNewPin() async {
-    if (_newPinCtrl.text.length < 4) {
-      setState(() => _error = 'PIN must be at least 4 digits.');
+    if (!RegExp(r'^\d{6}$').hasMatch(_newPinCtrl.text)) {
+      setState(() => _error = 'PIN must be exactly ${AppConstants.pinLength} digits.');
       return;
     }
     if (_newPinCtrl.text != _confirmCtrl.text) {
@@ -65,6 +70,7 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
   Widget build(BuildContext context) {
     final sp = context.watch<SettingsProvider>();
     final question = sp.settings.securityQuestion;
+    final question2 = sp.settings.securityQuestion2;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Recover PIN')),
@@ -93,7 +99,7 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
                         Text(
                           _step2
                               ? 'Identity verified. Set your new PIN below.'
-                              : 'Answer your security question to reset your PIN.',
+                              : 'Answer both security questions to reset your PIN.',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ],
@@ -106,7 +112,7 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
 
             if (!_step2) ...[
               // Step 1: verify security answer
-              Text('Security Question', style: Theme.of(context).textTheme.titleMedium),
+              Text('Security Question 1', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
               Container(
                 width: double.infinity,
@@ -123,7 +129,24 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
                         )),
               ),
               const SizedBox(height: 20),
-              if (question.isEmpty)
+              Text('Security Question 2', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppTheme.bgCard,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppTheme.divider),
+                ),
+                child: Text(question2.isEmpty ? 'No second security question set.' : question2,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontStyle: FontStyle.italic,
+                          color: AppTheme.textSecondary,
+                        )),
+              ),
+              const SizedBox(height: 20),
+              if (question.isEmpty || question2.isEmpty)
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -132,7 +155,7 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
                     border: Border.all(color: AppTheme.danger.withOpacity(0.3)),
                   ),
                   child: Text(
-                    'No security question was configured. Please contact support or reinstall the app.',
+                    'Security questions were not fully configured. Please update them in Settings.',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppTheme.danger),
                   ),
                 )
@@ -140,7 +163,16 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
                 TextField(
                   controller: _answerCtrl,
                   decoration: InputDecoration(
-                    labelText: 'Your answer',
+                    labelText: 'Answer 1',
+                    errorText: _error,
+                    hintText: 'Answer is not case-sensitive',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _answerCtrl2,
+                  decoration: InputDecoration(
+                    labelText: 'Answer 2',
                     errorText: _error,
                     hintText: 'Answer is not case-sensitive',
                   ),
@@ -163,16 +195,16 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
                 controller: _newPinCtrl,
                 obscureText: true,
                 keyboardType: TextInputType.number,
-                maxLength: 8,
-                decoration: const InputDecoration(labelText: 'New PIN (4-8 digits)'),
+                maxLength: AppConstants.pinLength,
+                decoration: const InputDecoration(labelText: 'New PIN (6 digits)'),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _confirmCtrl,
                 obscureText: true,
                 keyboardType: TextInputType.number,
-                maxLength: 8,
-                decoration: InputDecoration(labelText: 'Confirm new PIN', errorText: _error),
+                maxLength: AppConstants.pinLength,
+                decoration: InputDecoration(labelText: 'Confirm new PIN (6 digits)', errorText: _error),
               ),
               const SizedBox(height: 24),
               ElevatedButton(

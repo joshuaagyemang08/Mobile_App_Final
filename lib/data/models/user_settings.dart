@@ -7,6 +7,8 @@ class UserSettings {
   final List<String> monitoredApps;
   final String securityQuestion;
   final String securityAnswer;
+  final String securityQuestion2;
+  final String securityAnswer2;
   final bool lockScheduleEnabled;
   final int scheduleStartHour;
   final int scheduleEndHour;
@@ -23,6 +25,8 @@ class UserSettings {
     required this.monitoredApps,
     required this.securityQuestion,
     required this.securityAnswer,
+    required this.securityQuestion2,
+    required this.securityAnswer2,
     required this.lockScheduleEnabled,
     required this.scheduleStartHour,
     required this.scheduleEndHour,
@@ -40,6 +44,8 @@ class UserSettings {
     List<String>? monitoredApps,
     String? securityQuestion,
     String? securityAnswer,
+    String? securityQuestion2,
+    String? securityAnswer2,
     bool? lockScheduleEnabled,
     int? scheduleStartHour,
     int? scheduleEndHour,
@@ -56,6 +62,8 @@ class UserSettings {
       monitoredApps: monitoredApps ?? this.monitoredApps,
       securityQuestion: securityQuestion ?? this.securityQuestion,
       securityAnswer: securityAnswer ?? this.securityAnswer,
+      securityQuestion2: securityQuestion2 ?? this.securityQuestion2,
+      securityAnswer2: securityAnswer2 ?? this.securityAnswer2,
       lockScheduleEnabled: lockScheduleEnabled ?? this.lockScheduleEnabled,
       scheduleStartHour: scheduleStartHour ?? this.scheduleStartHour,
       scheduleEndHour: scheduleEndHour ?? this.scheduleEndHour,
@@ -74,6 +82,8 @@ class UserSettings {
         monitoredApps: [],
         securityQuestion: '',
         securityAnswer: '',
+        securityQuestion2: '',
+        securityAnswer2: '',
         lockScheduleEnabled: false,
         scheduleStartHour: 8,
         scheduleEndHour: 22,

@@ -29,7 +29,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   int _extraUnlockMinutes = 15;
   int _maxUnlocks = 1;
   int _selectedQuestion = 0;
+  int _selectedQuestion2 = 1;
   final _answerController = TextEditingController();
+  final _answerController2 = TextEditingController();
   final _pinController = TextEditingController();
   final _pinConfirmController = TextEditingController();
 
@@ -42,6 +44,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _pageController.dispose();
     _nameController.dispose();
     _answerController.dispose();
+    _answerController2.dispose();
     _pinController.dispose();
     _pinConfirmController.dispose();
     super.dispose();
@@ -75,8 +78,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       case 3:
         return true;
       case 4:
-        if (_pinController.text.length < 4) {
-          setState(() => _pinError = 'PIN must be at least 4 digits.');
+        if (!RegExp(r'^\d{6}$').hasMatch(_pinController.text)) {
+          setState(() => _pinError = 'PIN must be exactly ${AppConstants.pinLength} digits.');
           return false;
         }
         if (_pinController.text != _pinConfirmController.text) {
@@ -84,7 +87,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           return false;
         }
         if (_answerController.text.trim().isEmpty) {
-          _showError('Please answer the security question.');
+          _showError('Please answer the first security question.');
+          return false;
+        }
+        if (_selectedQuestion2 == _selectedQuestion) {
+          _showError('Please choose two different security questions.');
+          return false;
+        }
+        if (_answerController2.text.trim().isEmpty) {
+          _showError('Please answer the second security question.');
           return false;
         }
         return true;
@@ -111,6 +122,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       monitoredApps: _selectedApps.toList(),
       securityQuestion: AppConstants.securityQuestions[_selectedQuestion],
       securityAnswer: _answerController.text.trim().toLowerCase(),
+      securityQuestion2: AppConstants.securityQuestions[_selectedQuestion2],
+      securityAnswer2: _answerController2.text.trim().toLowerCase(),
       lockScheduleEnabled: false,
       scheduleStartHour: _wakeHour,
       scheduleEndHour: _sleepHour,
@@ -360,6 +373,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             const SizedBox(height: 32),
             _sectionLabel('Daily limit'),
             Text(
+              'Total time allowed on monitored apps each day before FocusLock blocks them.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 6),
+            Text(
               _dailyLimitMinutes < 60
                   ? '$_dailyLimitMinutes minutes'
                   : '${_dailyLimitMinutes ~/ 60}h ${_dailyLimitMinutes % 60}m',
@@ -373,6 +391,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 onChanged: (v) => setState(() => _dailyLimitMinutes = v.round())),
             const SizedBox(height: 16),
             _sectionLabel('Cooldown before unlock'),
+            Text(
+              'How long you must wait after hitting your limit before you can unlock again.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 6),
             Text('$_cooldownMinutes minutes',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(color: AppTheme.accent)),
             Slider(
@@ -383,6 +406,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 onChanged: (v) => setState(() => _cooldownMinutes = v.round())),
             const SizedBox(height: 16),
             _sectionLabel('Extra time per unlock'),
+            Text(
+              'Extra usage time granted each time you successfully unlock.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 6),
             Text('$_extraUnlockMinutes minutes',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(color: AppTheme.warning)),
             Slider(
@@ -393,6 +421,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 onChanged: (v) => setState(() => _extraUnlockMinutes = v.round())),
             const SizedBox(height: 16),
             _sectionLabel('Max unlocks per day'),
+            Text(
+              'Maximum number of unlock attempts allowed in a single day.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
             Row(
               children: [
                 IconButton(
@@ -419,16 +451,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           children: [
             _pageTitle('🔐 Set your PIN'),
             const SizedBox(height: 8),
-            Text('Used to access Settings. If you forget it, your security question will help you recover it.',
+            Text('Used to access Settings. If you forget it, your security questions will help you recover it.',
                 style: Theme.of(context).textTheme.bodyMedium),
             const SizedBox(height: 32),
             TextField(
               controller: _pinController,
               obscureText: !_pinVisible,
               keyboardType: TextInputType.number,
-              maxLength: 8,
+              maxLength: AppConstants.pinLength,
               decoration: InputDecoration(
-                labelText: 'Create PIN (4-8 digits)',
+                labelText: 'Create PIN (${AppConstants.pinLength} digits)',
                 errorText: _pinError,
                 suffixIcon: IconButton(
                   icon: Icon(_pinVisible ? Icons.visibility_off : Icons.visibility),
@@ -442,16 +474,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               controller: _pinConfirmController,
               obscureText: !_pinVisible,
               keyboardType: TextInputType.number,
-              maxLength: 8,
-              decoration: const InputDecoration(labelText: 'Confirm PIN'),
+              maxLength: AppConstants.pinLength,
+              decoration: InputDecoration(labelText: 'Confirm PIN (${AppConstants.pinLength} digits)'),
             ),
             const SizedBox(height: 24),
-            _sectionLabel('Security question (for PIN recovery)'),
+            _sectionLabel('Security question 1 (for PIN recovery)'),
             const SizedBox(height: 8),
             DropdownButtonFormField<int>(
-              value: _selectedQuestion,
+              initialValue: _selectedQuestion,
               dropdownColor: AppTheme.bgCard,
-              decoration: const InputDecoration(labelText: 'Choose a question'),
+              decoration: const InputDecoration(labelText: 'Choose question 1'),
               items: AppConstants.securityQuestions.asMap().entries.map((e) {
                 return DropdownMenuItem(value: e.key, child: Text(e.value, style: const TextStyle(fontSize: 13)));
               }).toList(),
@@ -460,7 +492,25 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             const SizedBox(height: 12),
             TextField(
               controller: _answerController,
-              decoration: const InputDecoration(labelText: 'Your answer'),
+              decoration: const InputDecoration(labelText: 'Answer 1'),
+              textCapitalization: TextCapitalization.none,
+            ),
+            const SizedBox(height: 20),
+            _sectionLabel('Second security question (for PIN recovery)'),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<int>(
+              initialValue: _selectedQuestion2,
+              dropdownColor: AppTheme.bgCard,
+              decoration: const InputDecoration(labelText: 'Choose a second question'),
+              items: AppConstants.securityQuestions.asMap().entries.map((e) {
+                return DropdownMenuItem(value: e.key, child: Text(e.value, style: const TextStyle(fontSize: 13)));
+              }).toList(),
+              onChanged: (v) => setState(() => _selectedQuestion2 = v!),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _answerController2,
+              decoration: const InputDecoration(labelText: 'Second answer'),
               textCapitalization: TextCapitalization.none,
             ),
             const SizedBox(height: 12),
@@ -477,7 +527,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Remember your answer exactly — it\'s case-insensitive but spelling matters.',
+                      'Remember both answers exactly — they are case-insensitive but spelling matters.',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.warning),
                     ),
                   ),

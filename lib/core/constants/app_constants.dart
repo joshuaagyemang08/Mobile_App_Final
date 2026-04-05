@@ -8,6 +8,8 @@ class AppConstants {
   static const String keyMonitoredApps = 'monitored_apps';
   static const String keySecurityQuestion = 'security_question';
   static const String keySecurityAnswer = 'security_answer';
+  static const String keySecurityQuestion2 = 'security_question_2';
+  static const String keySecurityAnswer2 = 'security_answer_2';
   static const String keyExtraUnlockMinutes = 'extra_unlock_minutes';
   static const String keyMaxUnlocksPerDay = 'max_unlocks_per_day';
   static const String keyLockScheduleEnabled = 'lock_schedule_enabled';
@@ -27,6 +29,7 @@ class AppConstants {
 
   // Secure storage keys
   static const String securePin = 'focuslock_pin';
+  static const int pinLength = 6;
 
   // Defaults
   static const int defaultDailyLimitMinutes = 60;
@@ -49,5 +52,13 @@ class AppConstants {
     "What was the name of your first school?",
     "What is your favourite movie?",
     "What is your oldest sibling's middle name?",
+    "What was your childhood nickname?",
+    "What is the first name of your best friend from school?",
+    "What was the first concert you attended?",
+    "What is your favourite teacher's surname?",
+    "What was the make of your first bicycle?",
+    "What street did you grow up on?",
+    "What was your dream job as a child?",
+    "What is your favourite book?",
   ];
 }

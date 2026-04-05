@@ -50,7 +50,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: const EdgeInsets.all(20),
         children: [
           // ── DAILY LIMITS ──────────────────────────────────
-          _SectionHeader('⏱️ Time Limits'),
+          const _SectionHeader('⏱️ Time Limits'),
           _SliderTile(
             label: 'Daily Social Media Limit',
             valueLabel: '${s.dailyLimitMinutes ~/ 60}h ${s.dailyLimitMinutes % 60}m',
@@ -88,7 +88,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
 
           // ── MONITORED APPS ────────────────────────────────
-          _SectionHeader('📱 Monitored Apps'),
+          const _SectionHeader('📱 Monitored Apps'),
           Container(
             decoration: BoxDecoration(
               color: AppTheme.bgCard,
@@ -117,7 +117,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
 
           // ── LOCK SCHEDULE ─────────────────────────────────
-          _SectionHeader('📅 Lock Schedule'),
+          const _SectionHeader('📅 Lock Schedule'),
           _Card(
             child: Column(
               children: [
@@ -147,7 +147,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
 
           // ── SENSORS ───────────────────────────────────────
-          _SectionHeader('📡 Sensors'),
+          const _SectionHeader('📡 Sensors'),
           _Card(
             child: SwitchListTile(
               title: Text('Track Phone Pickups',
@@ -160,7 +160,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
 
           // ── SECURITY ──────────────────────────────────────
-          _SectionHeader('🔐 Security'),
+          const _SectionHeader('🔐 Security'),
           _Card(
             child: Column(
               children: [
@@ -171,7 +171,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  title: Text('Update Security Question',
+                  title: Text('Update Recovery Questions',
                       style: Theme.of(context).textTheme.titleMedium),
                   trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                   onTap: () => _showSecurityQuestionDialog(context, sp, s),
@@ -181,7 +181,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
 
           // ── DANGER ZONE ───────────────────────────────────
-          _SectionHeader('⚠️ Danger Zone'),
+          const _SectionHeader('⚠️ Danger Zone'),
           _Card(
             child: ListTile(
               title: Text('Reset All Settings',
@@ -221,6 +221,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 userName: sp.settings.userName,
                 securityQuestion: sp.settings.securityQuestion,
                 securityAnswer: sp.settings.securityAnswer,
+                securityQuestion2: sp.settings.securityQuestion2,
+                securityAnswer2: sp.settings.securityAnswer2,
               ));
               if (ctx.mounted) {
                 Navigator.pop(ctx);
@@ -419,10 +421,12 @@ class _PinGateDialogState extends State<_PinGateDialog> {
               controller: _pinCtrl,
               obscureText: true,
               keyboardType: TextInputType.number,
+              maxLength: AppConstants.pinLength,
               autofocus: true,
               decoration: InputDecoration(
-                labelText: 'PIN',
+                labelText: 'PIN (6 digits)',
                 errorText: _error,
+                counterText: '',
               ),
               onSubmitted: (_) => _verify(),
             ),
@@ -433,7 +437,7 @@ class _PinGateDialogState extends State<_PinGateDialog> {
                   Navigator.pop(context, false);
                   Future.microtask(() => Navigator.pushNamed(context, '/forgot-pin'));
                 },
-                child: const Text('Forgot PIN? Recover via security question',
+                child: const Text('Forgot PIN? Recover via security questions',
                     style: TextStyle(color: AppTheme.warning, fontSize: 12)),
               ),
             ],
@@ -476,7 +480,10 @@ class _ChangePinDialogState extends State<_ChangePinDialog> {
   Future<void> _save() async {
     final oldOk = await widget.sp.verifyPin(_oldCtrl.text);
     if (!oldOk) { setState(() => _error = 'Current PIN is incorrect.'); return; }
-    if (_newCtrl.text.length < 4) { setState(() => _error = 'New PIN must be at least 4 digits.'); return; }
+    if (!RegExp(r'^\d{6}$').hasMatch(_newCtrl.text)) {
+      setState(() => _error = 'New PIN must be exactly ${AppConstants.pinLength} digits.');
+      return;
+    }
     if (_newCtrl.text != _confirmCtrl.text) { setState(() => _error = 'PINs do not match.'); return; }
     await widget.sp.savePin(_newCtrl.text);
     if (mounted) {
@@ -495,13 +502,16 @@ class _ChangePinDialogState extends State<_ChangePinDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(controller: _oldCtrl, obscureText: true, keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Current PIN')),
+                maxLength: AppConstants.pinLength,
+                decoration: const InputDecoration(labelText: 'Current PIN (6 digits)', counterText: '')),
             const SizedBox(height: 8),
             TextField(controller: _newCtrl, obscureText: true, keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'New PIN')),
+                maxLength: AppConstants.pinLength,
+                decoration: const InputDecoration(labelText: 'New PIN (6 digits)', counterText: '')),
             const SizedBox(height: 8),
             TextField(controller: _confirmCtrl, obscureText: true, keyboardType: TextInputType.number,
-                decoration: InputDecoration(labelText: 'Confirm New PIN', errorText: _error)),
+                maxLength: AppConstants.pinLength,
+                decoration: InputDecoration(labelText: 'Confirm New PIN (6 digits)', errorText: _error, counterText: '')),
           ],
         ),
         actions: [
@@ -525,31 +535,48 @@ class _SecurityQuestionDialog extends StatefulWidget {
 
 class _SecurityQuestionDialogState extends State<_SecurityQuestionDialog> {
   late int _selectedQ;
+  late int _selectedQ2;
   final _answerCtrl = TextEditingController();
+  final _answerCtrl2 = TextEditingController();
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _selectedQ = AppConstants.securityQuestions.indexOf(widget.settings.securityQuestion).clamp(0, 5);
+    _selectedQ = AppConstants.securityQuestions
+        .indexOf(widget.settings.securityQuestion)
+        .clamp(0, AppConstants.securityQuestions.length - 1);
+    _selectedQ2 = AppConstants.securityQuestions
+        .indexOf(widget.settings.securityQuestion2)
+        .clamp(0, AppConstants.securityQuestions.length - 1);
   }
 
   @override
-  void dispose() { _answerCtrl.dispose(); super.dispose(); }
+  void dispose() {
+    _answerCtrl.dispose();
+    _answerCtrl2.dispose();
+    super.dispose();
+  }
 
   Future<void> _save() async {
-    if (_answerCtrl.text.trim().isEmpty) {
-      setState(() => _error = 'Please provide an answer.');
+    if (_selectedQ == _selectedQ2) {
+      setState(() => _error = 'Choose two different security questions.');
+      return;
+    }
+    if (_answerCtrl.text.trim().isEmpty || _answerCtrl2.text.trim().isEmpty) {
+      setState(() => _error = 'Please provide both answers.');
       return;
     }
     await widget.sp.update(widget.settings.copyWith(
       securityQuestion: AppConstants.securityQuestions[_selectedQ],
       securityAnswer: _answerCtrl.text.trim().toLowerCase(),
+      securityQuestion2: AppConstants.securityQuestions[_selectedQ2],
+      securityAnswer2: _answerCtrl2.text.trim().toLowerCase(),
     ));
     if (mounted) {
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Security question updated!'), backgroundColor: AppTheme.success),
+        const SnackBar(content: Text('Recovery questions updated!'), backgroundColor: AppTheme.success),
       );
     }
   }
@@ -557,14 +584,14 @@ class _SecurityQuestionDialogState extends State<_SecurityQuestionDialog> {
   @override
   Widget build(BuildContext context) => AlertDialog(
         backgroundColor: AppTheme.bgCard,
-        title: const Text('Update Security Question'),
+        title: const Text('Update Recovery Questions'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             DropdownButtonFormField<int>(
-              value: _selectedQ,
+              initialValue: _selectedQ,
               dropdownColor: AppTheme.bgCard,
-              decoration: const InputDecoration(labelText: 'Question'),
+              decoration: const InputDecoration(labelText: 'Question 1'),
               items: AppConstants.securityQuestions.asMap().entries
                   .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value, style: const TextStyle(fontSize: 12))))
                   .toList(),
@@ -573,7 +600,23 @@ class _SecurityQuestionDialogState extends State<_SecurityQuestionDialog> {
             const SizedBox(height: 8),
             TextField(
               controller: _answerCtrl,
-              decoration: InputDecoration(labelText: 'Your answer', errorText: _error),
+              decoration: InputDecoration(labelText: 'Answer 1', errorText: _error),
+              onChanged: (_) => setState(() => _error = null),
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<int>(
+              initialValue: _selectedQ2,
+              dropdownColor: AppTheme.bgCard,
+              decoration: const InputDecoration(labelText: 'Question 2'),
+              items: AppConstants.securityQuestions.asMap().entries
+                  .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value, style: const TextStyle(fontSize: 12))))
+                  .toList(),
+              onChanged: (v) => setState(() => _selectedQ2 = v!),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _answerCtrl2,
+              decoration: InputDecoration(labelText: 'Answer 2', errorText: _error),
               onChanged: (_) => setState(() => _error = null),
             ),
           ],

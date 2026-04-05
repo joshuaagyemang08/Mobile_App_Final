@@ -43,6 +43,8 @@ class SettingsService {
       monitoredApps: apps,
       securityQuestion: prefs.getString(AppConstants.keySecurityQuestion) ?? '',
       securityAnswer: prefs.getString(AppConstants.keySecurityAnswer) ?? '',
+      securityQuestion2: prefs.getString(AppConstants.keySecurityQuestion2) ?? '',
+      securityAnswer2: prefs.getString(AppConstants.keySecurityAnswer2) ?? '',
       lockScheduleEnabled: prefs.getBool(AppConstants.keyLockScheduleEnabled) ?? false,
       scheduleStartHour: prefs.getInt(AppConstants.keyScheduleStartHour) ?? 8,
       scheduleEndHour: prefs.getInt(AppConstants.keyScheduleEndHour) ?? 22,
@@ -62,6 +64,8 @@ class SettingsService {
     await prefs.setString(AppConstants.keyMonitoredApps, jsonEncode(s.monitoredApps));
     await prefs.setString(AppConstants.keySecurityQuestion, s.securityQuestion);
     await prefs.setString(AppConstants.keySecurityAnswer, s.securityAnswer.toLowerCase().trim());
+    await prefs.setString(AppConstants.keySecurityQuestion2, s.securityQuestion2);
+    await prefs.setString(AppConstants.keySecurityAnswer2, s.securityAnswer2.toLowerCase().trim());
     await prefs.setBool(AppConstants.keyLockScheduleEnabled, s.lockScheduleEnabled);
     await prefs.setInt(AppConstants.keyScheduleStartHour, s.scheduleStartHour);
     await prefs.setInt(AppConstants.keyScheduleEndHour, s.scheduleEndHour);
@@ -73,6 +77,10 @@ class SettingsService {
   // ── PIN (secure storage) ────────────────────────────────
 
   Future<void> savePin(String pin) async {
+    final isValidPin = pin.length == AppConstants.pinLength && RegExp(r'^\d+$').hasMatch(pin);
+    if (!isValidPin) {
+      throw ArgumentError('PIN must be exactly ${AppConstants.pinLength} digits.');
+    }
     await _secure.write(key: AppConstants.securePin, value: pin);
   }
 
@@ -81,6 +89,10 @@ class SettingsService {
   }
 
   Future<bool> verifyPin(String input) async {
+    final isValidPin = input.length == AppConstants.pinLength && RegExp(r'^\d+$').hasMatch(input);
+    if (!isValidPin) {
+      return false;
+    }
     final stored = await getPin();
     return stored != null && stored == input;
   }
@@ -88,6 +100,12 @@ class SettingsService {
   Future<bool> verifySecurityAnswer(String input) async {
     final prefs = await SharedPreferences.getInstance();
     final stored = prefs.getString(AppConstants.keySecurityAnswer) ?? '';
+    return stored == input.toLowerCase().trim();
+  }
+
+  Future<bool> verifySecurityAnswer2(String input) async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString(AppConstants.keySecurityAnswer2) ?? '';
     return stored == input.toLowerCase().trim();
   }
 
