@@ -1,5 +1,7 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../../core/constants/app_constants.dart';
+import 'package:timezone/data/latest.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
@@ -7,8 +9,14 @@ class NotificationService {
   NotificationService._internal();
 
   final _plugin = FlutterLocalNotificationsPlugin();
+  bool _tzReady = false;
 
   Future<void> init() async {
+    if (!_tzReady) {
+      tz.initializeTimeZones();
+      _tzReady = true;
+    }
+
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     await _plugin.initialize(
       const InitializationSettings(android: android),
@@ -36,7 +44,7 @@ class NotificationService {
   Future<void> showApproaching75(int remainingMinutes) async {
     await _show(
       id: AppConstants.notifIdApproaching75,
-      title: '⚠️ Heads up, ${_fmt(remainingMinutes)} left',
+      title: 'Heads up, ${_fmt(remainingMinutes)} left',
       body: 'You\'re 75% through your daily social media limit.',
     );
   }
@@ -44,7 +52,7 @@ class NotificationService {
   Future<void> showApproaching90(int remainingMinutes) async {
     await _show(
       id: AppConstants.notifIdApproaching90,
-      title: '🔴 Almost there! ${_fmt(remainingMinutes)} left',
+      title: 'Almost there! ${_fmt(remainingMinutes)} left',
       body: 'Your social media apps will be locked very soon.',
     );
   }
@@ -52,13 +60,74 @@ class NotificationService {
   Future<void> showLimitReached() async {
     await _show(
       id: AppConstants.notifIdLimitReached,
-      title: '🔒 FocusLock activated',
+      title: 'FocusLock activated',
       body: 'Daily limit reached. Social media is now locked. Stay focused!',
     );
   }
 
   Future<void> cancelAll() async {
     await _plugin.cancelAll();
+  }
+
+  Future<void> showPreviewNotification({required String title, required String body}) async {
+    await _show(id: 7777, title: title, body: body);
+  }
+
+  Future<void> scheduleWakeSleepReminders({required int wakeHour, required int sleepHour}) async {
+    await _plugin.cancel(8101);
+    await _plugin.cancel(8102);
+
+    final wake = _nextInstance(hour: wakeHour);
+    final sleep = _nextInstance(hour: sleepHour);
+
+    await _plugin.zonedSchedule(
+      8101,
+      'Good morning',
+      'Start your day with intention, not endless scrolling.',
+      wake,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'focuslock_channel',
+          'FocusLock Alerts',
+          channelDescription: 'Usage limit and lock notifications',
+          importance: Importance.high,
+          priority: Priority.high,
+          icon: '@mipmap/ic_launcher',
+        ),
+      ),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+      matchDateTimeComponents: DateTimeComponents.time,
+    );
+
+    await _plugin.zonedSchedule(
+      8102,
+      'Wind down reminder',
+      'Your sleep window is near. Time to unplug.',
+      sleep,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'focuslock_channel',
+          'FocusLock Alerts',
+          channelDescription: 'Usage limit and lock notifications',
+          importance: Importance.high,
+          priority: Priority.high,
+          icon: '@mipmap/ic_launcher',
+        ),
+      ),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+      matchDateTimeComponents: DateTimeComponents.time,
+    );
+  }
+
+  tz.TZDateTime _nextInstance({required int hour}) {
+    final now = DateTime.now();
+    var scheduled = DateTime(now.year, now.month, now.day, hour);
+    if (scheduled.isBefore(now)) {
+      scheduled = scheduled.add(const Duration(days: 1));
+    }
+    return tz.TZDateTime.from(scheduled, tz.local);
   }
 
   Future<void> _show({required int id, required String title, required String body}) async {

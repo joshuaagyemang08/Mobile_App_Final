@@ -1,6 +1,9 @@
 class AppConstants {
   AppConstants._();
 
+  // App mode flags
+  static const bool enableTracking = false;
+
   // SharedPreferences keys
   static const String keyIsOnboarded = 'is_onboarded';
   static const String keyDailyLimitMinutes = 'daily_limit_minutes';
@@ -17,6 +20,7 @@ class AppConstants {
   static const String keyScheduleEndHour = 'schedule_end_hour';
   static const String keyTodayUnlockCount = 'today_unlock_count';
   static const String keyLastUnlockDate = 'last_unlock_date';
+  static const String keyLastDailyResetDate = 'last_daily_reset_date';
   static const String keyIsLocked = 'is_locked';
   static const String keyCooldownEndTime = 'cooldown_end_time';
   static const String keyChallengeCode = 'challenge_code';
@@ -26,6 +30,11 @@ class AppConstants {
   static const String keyUserName = 'user_name';
   static const String keyWakeHour = 'wake_hour';
   static const String keySleepHour = 'sleep_hour';
+  static const String keyIsLoggedIn = 'is_logged_in';
+  static const String keyUserEmail = 'user_email';
+  static const String keyUserPassword = 'user_password';
+  static const String keyNotificationsEnabled = 'notifications_enabled';
+  static const String keyThemeDarkMode = 'theme_dark_mode';
 
   // Secure storage keys
   static const String securePin = 'focuslock_pin';

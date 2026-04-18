@@ -17,11 +17,11 @@ class PickupDetector {
 
   double _lastMagnitude = 0;
   DateTime? _lastPickupTime;
-  static const double _threshold = 12.0; // m/s² — motion threshold
-  static const Duration _cooldown = Duration(seconds: 10); // min gap between pickups
+  static const double _motionThreshold = 2.2; // user-acceleration magnitude in m/s²
+  static const Duration _cooldown = Duration(seconds: 6); // min gap between pickups
 
   void start() {
-    _sub ??= accelerometerEventStream().listen((event) {
+    _sub ??= userAccelerometerEventStream().listen((event) {
       final magnitude = sqrt(
         event.x * event.x + event.y * event.y + event.z * event.z,
       );
@@ -29,7 +29,7 @@ class PickupDetector {
       final delta = (magnitude - _lastMagnitude).abs();
       _lastMagnitude = magnitude;
 
-      if (delta > _threshold) {
+      if (magnitude >= _motionThreshold || delta >= _motionThreshold) {
         final now = DateTime.now();
         if (_lastPickupTime == null || now.difference(_lastPickupTime!) > _cooldown) {
           _lastPickupTime = now;

@@ -1,12 +1,17 @@
+import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+
 class SocialApp {
   final String packageName;
   final String displayName;
-  final String emoji;
+  final String badge;
+  final IconData icon;
 
   const SocialApp({
     required this.packageName,
     required this.displayName,
-    required this.emoji,
+    required this.badge,
+    required this.icon,
   });
 }
 
@@ -14,21 +19,21 @@ class SocialApps {
   SocialApps._();
 
   static const List<SocialApp> all = [
-    SocialApp(packageName: 'com.instagram.android', displayName: 'Instagram', emoji: '📸'),
-    SocialApp(packageName: 'com.zhiliaoapp.musically', displayName: 'TikTok', emoji: '🎵'),
-    SocialApp(packageName: 'com.twitter.android', displayName: 'X (Twitter)', emoji: '🐦'),
-    SocialApp(packageName: 'com.facebook.katana', displayName: 'Facebook', emoji: '👥'),
-    SocialApp(packageName: 'com.snapchat.android', displayName: 'Snapchat', emoji: '👻'),
-    SocialApp(packageName: 'com.whatsapp', displayName: 'WhatsApp', emoji: '💬'),
-    SocialApp(packageName: 'com.google.android.youtube', displayName: 'YouTube', emoji: '▶️'),
-    SocialApp(packageName: 'com.linkedin.android', displayName: 'LinkedIn', emoji: '💼'),
-    SocialApp(packageName: 'com.pinterest', displayName: 'Pinterest', emoji: '📌'),
-    SocialApp(packageName: 'com.reddit.frontpage', displayName: 'Reddit', emoji: '🤖'),
-    SocialApp(packageName: 'com.tumblr', displayName: 'Tumblr', emoji: '✏️'),
-    SocialApp(packageName: 'com.discord', displayName: 'Discord', emoji: '🎮'),
-    SocialApp(packageName: 'com.bereal.mobile', displayName: 'BeReal', emoji: '📷'),
-    SocialApp(packageName: 'com.threads.android', displayName: 'Threads', emoji: '🧵'),
-    SocialApp(packageName: 'tv.twitch.android.app', displayName: 'Twitch', emoji: '🎲'),
+    SocialApp(packageName: 'com.instagram.android', displayName: 'Instagram', badge: 'IG', icon: FontAwesomeIcons.instagram),
+    SocialApp(packageName: 'com.zhiliaoapp.musically', displayName: 'TikTok', badge: 'TT', icon: FontAwesomeIcons.tiktok),
+    SocialApp(packageName: 'com.twitter.android', displayName: 'X (Twitter)', badge: 'X', icon: FontAwesomeIcons.xTwitter),
+    SocialApp(packageName: 'com.facebook.katana', displayName: 'Facebook', badge: 'FB', icon: FontAwesomeIcons.facebookF),
+    SocialApp(packageName: 'com.snapchat.android', displayName: 'Snapchat', badge: 'SC', icon: FontAwesomeIcons.snapchat),
+    SocialApp(packageName: 'com.whatsapp', displayName: 'WhatsApp', badge: 'WA', icon: FontAwesomeIcons.whatsapp),
+    SocialApp(packageName: 'com.google.android.youtube', displayName: 'YouTube', badge: 'YT', icon: FontAwesomeIcons.youtube),
+    SocialApp(packageName: 'com.linkedin.android', displayName: 'LinkedIn', badge: 'IN', icon: FontAwesomeIcons.linkedinIn),
+    SocialApp(packageName: 'com.pinterest', displayName: 'Pinterest', badge: 'PT', icon: FontAwesomeIcons.pinterestP),
+    SocialApp(packageName: 'com.reddit.frontpage', displayName: 'Reddit', badge: 'RD', icon: FontAwesomeIcons.redditAlien),
+    SocialApp(packageName: 'com.tumblr', displayName: 'Tumblr', badge: 'TB', icon: FontAwesomeIcons.tumblr),
+    SocialApp(packageName: 'com.discord', displayName: 'Discord', badge: 'DC', icon: FontAwesomeIcons.discord),
+    SocialApp(packageName: 'com.bereal.mobile', displayName: 'BeReal', badge: 'BR', icon: Icons.photo_camera_outlined),
+    SocialApp(packageName: 'com.threads.android', displayName: 'Threads', badge: 'TH', icon: Icons.alternate_email_rounded),
+    SocialApp(packageName: 'tv.twitch.android.app', displayName: 'Twitch', badge: 'TW', icon: FontAwesomeIcons.twitch),
   ];
 
   static SocialApp? fromPackage(String packageName) {

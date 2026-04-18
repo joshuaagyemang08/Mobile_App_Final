@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/time_utils.dart';
+import '../../core/widgets/scene_background.dart';
 import '../../providers/usage_provider.dart';
 import '../../providers/settings_provider.dart';
 
@@ -25,6 +26,7 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
   final _codeController = TextEditingController();
   String? _codeError;
   bool _isVerifying = false;
+  bool _codeVerified = false;
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -43,7 +45,6 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _initCooldown() async {
-    final usage = context.read<UsageProvider>();
     final endTime = await _getCooldownEnd();
 
     if (endTime == null || DateTime.now().isAfter(endTime)) {
@@ -90,6 +91,8 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _verifyCode() async {
+    if (_codeVerified) return;
+
     if (_codeController.text.isEmpty) {
       setState(() => _codeError = 'Please enter the code');
       return;
@@ -97,10 +100,35 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
     setState(() { _isVerifying = true; _codeError = null; });
 
     final usage = context.read<UsageProvider>();
-    final settings = context.read<SettingsProvider>().settings;
 
-    // Check if max unlocks exceeded
+    final valid = await usage.verifyChallengeCode(_codeController.text.trim());
+    if (!mounted) return;
+
+    if (valid) {
+      setState(() {
+        _isVerifying = false;
+        _codeVerified = true;
+      });
+    } else {
+      setState(() {
+        _isVerifying = false;
+        _codeError = 'Incorrect code. Try again.';
+        _codeController.clear();
+      });
+    }
+  }
+
+  Future<void> _useUnlockNow() async {
+    setState(() {
+      _isVerifying = true;
+      _codeError = null;
+    });
+
+    final usage = context.read<UsageProvider>();
+    final settings = context.read<SettingsProvider>().settings;
     final unlockCount = await usage.getTodayUnlockCount();
+
+    if (!mounted) return;
     if (unlockCount >= settings.maxUnlocksPerDay) {
       setState(() {
         _isVerifying = false;
@@ -109,21 +137,9 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
       return;
     }
 
-    final valid = await usage.verifyChallengeCode(_codeController.text.trim());
+    await usage.unlock();
     if (!mounted) return;
-
-    if (valid) {
-      await usage.unlock();
-      if (mounted) {
-        Navigator.pushReplacementNamed(context, '/home');
-      }
-    } else {
-      setState(() {
-        _isVerifying = false;
-        _codeError = 'Incorrect code. Try again.';
-        _codeController.clear();
-      });
-    }
+    Navigator.pushReplacementNamed(context, '/home');
   }
 
   @override
@@ -140,35 +156,52 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
     final settings = context.watch<SettingsProvider>().settings;
     final usage = context.watch<UsageProvider>();
 
-    return Scaffold(
-      backgroundColor: AppTheme.bgDark,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            children: [
-              const Spacer(),
-              _buildLockIcon(),
-              const SizedBox(height: 24),
-              Text(
-                '🔒 FocusLock Activated',
-                style: Theme.of(context).textTheme.displayMedium?.copyWith(
-                      color: AppTheme.danger,
-                      fontSize: 22,
+    return SceneBackground(
+      dark: true,
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 520),
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.96),
+                  borderRadius: BorderRadius.circular(32),
+                  border: Border.all(color: Colors.white.withOpacity(0.85)),
+                  boxShadow: const [
+                    BoxShadow(color: AppTheme.shadow, blurRadius: 30, offset: Offset(0, 16)),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildLockIcon(),
+                    const SizedBox(height: 24),
+                      Text(
+                        'FocusLock activated',
+                        style: Theme.of(context).textTheme.displayMedium?.copyWith(
+                              color: AppTheme.danger,
+                              fontSize: 22,
+                            ),
+                        textAlign: TextAlign.center,
+                      ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'You\'ve reached your daily social media limit of ${TimeUtils.formatMinutes(settings.dailyLimitMinutes)}.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium,
                     ),
-                textAlign: TextAlign.center,
+                    const SizedBox(height: 28),
+                    if (!_cooldownExpired) _buildCooldownSection() else _buildUnlockSection(usage, settings),
+                    const SizedBox(height: 18),
+                    _buildMotivationalFooter(),
+                  ],
+                ),
               ),
-              const SizedBox(height: 12),
-              Text(
-                'You\'ve reached your daily social media limit of ${TimeUtils.formatMinutes(settings.dailyLimitMinutes)}.',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 32),
-              if (!_cooldownExpired) _buildCooldownSection() else _buildUnlockSection(usage, settings),
-              const Spacer(),
-              _buildMotivationalFooter(),
-            ],
+            ),
           ),
         ),
       ),
@@ -179,15 +212,22 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
     return ScaleTransition(
       scale: _pulseAnimation,
       child: Container(
-        width: 100,
-        height: 100,
+        width: 96,
+        height: 96,
         decoration: BoxDecoration(
-          color: AppTheme.danger.withOpacity(0.15),
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [AppTheme.danger, AppTheme.accent],
+          ),
           shape: BoxShape.circle,
-          border: Border.all(color: AppTheme.danger.withOpacity(0.4), width: 2),
+          border: Border.all(color: Colors.white.withOpacity(0.22), width: 2),
+          boxShadow: [
+            BoxShadow(color: AppTheme.danger.withOpacity(0.28), blurRadius: 24, offset: const Offset(0, 12)),
+          ],
         ),
         child: const Center(
-          child: Text('🔒', style: TextStyle(fontSize: 48)),
+            child: Icon(Icons.lock_rounded, size: 44, color: Colors.white),
         ),
       ),
     );
@@ -202,7 +242,7 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
           padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
           decoration: BoxDecoration(
             color: AppTheme.bgCard,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(24),
             border: Border.all(color: AppTheme.divider),
           ),
           child: Text(
@@ -271,7 +311,7 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                 decoration: BoxDecoration(
                   color: AppTheme.bgCard,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(18),
                   border: Border.all(color: AppTheme.warning, width: 2),
                 ),
                 child: Text(
@@ -286,34 +326,70 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
             ],
           ),
         const SizedBox(height: 24),
-        TextField(
-          controller: _codeController,
-          keyboardType: TextInputType.number,
-          textAlign: TextAlign.center,
-          maxLength: 6,
-          style: const TextStyle(letterSpacing: 8, fontSize: 22),
-          decoration: InputDecoration(
-            labelText: 'Enter code here',
-            errorText: _codeError,
-            counterText: '',
+        if (!_codeVerified) ...[
+          Text(
+            'Revealing and verifying code does not consume an unlock.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall,
           ),
-          onSubmitted: (_) => _verifyCode(),
-        ),
-        const SizedBox(height: 16),
-        ElevatedButton(
-          onPressed: _isVerifying ? null : _verifyCode,
-          child: _isVerifying
-              ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-              : const Text('Unlock'),
-        ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _codeController,
+            keyboardType: TextInputType.number,
+            textAlign: TextAlign.center,
+            maxLength: 6,
+            style: const TextStyle(letterSpacing: 8, fontSize: 22),
+            decoration: InputDecoration(
+              labelText: 'Enter code here',
+              errorText: _codeError,
+              counterText: '',
+            ),
+            onSubmitted: (_) => _verifyCode(),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _isVerifying ? null : _verifyCode,
+            child: _isVerifying
+                ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                : const Text('Verify Code'),
+          ),
+        ] else ...[
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppTheme.primary.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: AppTheme.primary.withOpacity(0.35)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.verified, color: AppTheme.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Code verified. Tap "Use Unlock" only when you want to spend one unlock.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          ElevatedButton.icon(
+            onPressed: _isVerifying ? null : _useUnlockNow,
+            icon: const Icon(Icons.lock_open),
+            label: Text('Use 1 Unlock (+${settings.extraUnlockMinutes}m)'),
+          ),
+        ],
         const SizedBox(height: 12),
         FutureBuilder<int>(
           future: usage.getTodayUnlockCount(),
           builder: (ctx, snap) {
             final used = snap.data ?? 0;
             final max = settings.maxUnlocksPerDay;
+            final left = (max - used).clamp(0, max);
             return Text(
-              'Unlocks used today: $used / $max',
+              'Unlocks used: $used / $max   •   Left: $left',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: used >= max ? AppTheme.danger : AppTheme.textMuted,
                   ),

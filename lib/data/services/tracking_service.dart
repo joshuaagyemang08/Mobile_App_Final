@@ -23,7 +23,6 @@ class TrackingTaskHandler extends TaskHandler {
 
   bool _sent75 = false;
   bool _sent90 = false;
-  String? _lastCheckedDate;
 
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
@@ -32,15 +31,17 @@ class TrackingTaskHandler extends TaskHandler {
 
   @override
   void onRepeatEvent(DateTime timestamp) async {
-    // Reset notification flags at day rollover
+    final prefs = await SharedPreferences.getInstance();
+
+    // Reset lock and notification flags once per calendar day.
     final today = TimeUtils.todayKey();
-    if (_lastCheckedDate != null && _lastCheckedDate != today) {
+    final lastResetDate = prefs.getString(AppConstants.keyLastDailyResetDate);
+    if (lastResetDate != today) {
       _sent75 = false;
       _sent90 = false;
-      // Unlock at midnight automatically
       await _settings.setLocked(false);
+      await prefs.setString(AppConstants.keyLastDailyResetDate, today);
     }
-    _lastCheckedDate = today;
 
     final isLocked = await _settings.isLocked();
     if (isLocked) return;
@@ -56,7 +57,6 @@ class TrackingTaskHandler extends TaskHandler {
       return; // Usage stats permission not granted yet
     }
 
-    final prefs = await SharedPreferences.getInstance();
     final appsJson = prefs.getString(AppConstants.keyMonitoredApps);
     if (appsJson == null) return;
     final monitoredApps = List<String>.from(jsonDecode(appsJson));
@@ -74,8 +74,11 @@ class TrackingTaskHandler extends TaskHandler {
     }
 
     final limitMinutes = prefs.getInt(AppConstants.keyDailyLimitMinutes) ?? AppConstants.defaultDailyLimitMinutes;
-    final remaining = limitMinutes - totalMinutes;
-    final percentUsed = totalMinutes / limitMinutes;
+    final extraUnlockMinutes = prefs.getInt(AppConstants.keyExtraUnlockMinutes) ?? AppConstants.defaultExtraUnlockMinutes;
+    final unlocksUsed = await _settings.getTodayUnlockCount();
+    final effectiveLimitMinutes = limitMinutes + (unlocksUsed * extraUnlockMinutes);
+    final remaining = effectiveLimitMinutes - totalMinutes;
+    final percentUsed = totalMinutes / (effectiveLimitMinutes <= 0 ? 1 : effectiveLimitMinutes);
 
     // Send notifications at thresholds
     if (percentUsed >= 0.75 && !_sent75 && percentUsed < 0.90) {
@@ -88,7 +91,7 @@ class TrackingTaskHandler extends TaskHandler {
     }
 
     // Trigger lock
-    if (totalMinutes >= limitMinutes) {
+    if (totalMinutes >= effectiveLimitMinutes) {
       final cooldownMinutes = prefs.getInt(AppConstants.keyCooldownMinutes) ?? AppConstants.defaultCooldownMinutes;
       await _settings.setLocked(true, cooldownMinutes: cooldownMinutes);
       await _notif.showLimitReached();

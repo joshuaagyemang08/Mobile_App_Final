@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/scene_background.dart';
 import '../../providers/settings_provider.dart';
 
 class ForgotPinScreen extends StatefulWidget {
@@ -60,7 +61,7 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('PIN reset successfully! 🎉'), backgroundColor: AppTheme.success),
+        const SnackBar(content: Text('PIN reset successfully!'), backgroundColor: AppTheme.success),
       );
       Navigator.pop(context);
     }
@@ -72,45 +73,58 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
     final question = sp.settings.securityQuestion;
     final question2 = sp.settings.securityQuestion2;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Recover PIN')),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: AppTheme.bgCard,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppTheme.warning.withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  const Text('🔑', style: TextStyle(fontSize: 32)),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('PIN Recovery', style: Theme.of(context).textTheme.titleLarge),
-                        Text(
-                          _step2
-                              ? 'Identity verified. Set your new PIN below.'
-                              : 'Answer both security questions to reset your PIN.',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
+    return SceneBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(title: const Text('Recover PIN')),
+        body: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.9),
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(color: Colors.white.withOpacity(0.75)),
+                  boxShadow: const [
+                    BoxShadow(color: AppTheme.shadow, blurRadius: 24, offset: Offset(0, 12)),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(colors: [AppTheme.warning, AppTheme.accent]),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Icon(Icons.key_rounded, color: Colors.white, size: 28),
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('PIN Recovery', style: Theme.of(context).textTheme.titleLarge),
+                          const SizedBox(height: 4),
+                          Text(
+                            _step2
+                                ? 'Identity verified. Set your new PIN below.'
+                                : 'Answer both security questions to reset your PIN.',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 32),
+              const SizedBox(height: 24),
 
-            if (!_step2) ...[
+              if (!_step2) ...[
               // Step 1: verify security answer
               Text('Security Question 1', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
@@ -118,8 +132,8 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: AppTheme.bgCard,
-                  borderRadius: BorderRadius.circular(12),
+                  color: Colors.white.withOpacity(0.92),
+                  borderRadius: BorderRadius.circular(18),
                   border: Border.all(color: AppTheme.divider),
                 ),
                 child: Text(question.isEmpty ? 'No security question set.' : question,
@@ -135,8 +149,8 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: AppTheme.bgCard,
-                  borderRadius: BorderRadius.circular(12),
+                  color: Colors.white.withOpacity(0.92),
+                  borderRadius: BorderRadius.circular(18),
                   border: Border.all(color: AppTheme.divider),
                 ),
                 child: Text(question2.isEmpty ? 'No second security question set.' : question2,
@@ -151,7 +165,7 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: AppTheme.danger.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(18),
                     border: Border.all(color: AppTheme.danger.withOpacity(0.3)),
                   ),
                   child: Text(
@@ -185,9 +199,9 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
                       : const Text('Verify Answer'),
                 ),
               ],
-            ] else ...[
+              ] else ...[
               // Step 2: set new PIN
-              const Text('✅', style: TextStyle(fontSize: 40)),
+              const Icon(Icons.verified_rounded, size: 40, color: AppTheme.success),
               const SizedBox(height: 8),
               Text('Identity Verified', style: Theme.of(context).textTheme.titleLarge?.copyWith(color: AppTheme.success)),
               const SizedBox(height: 24),
@@ -213,8 +227,9 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
                     ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                     : const Text('Set New PIN'),
               ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

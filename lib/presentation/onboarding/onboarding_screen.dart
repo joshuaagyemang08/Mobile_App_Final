@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/constants/social_apps.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/focuslock_brand.dart';
+import '../../core/widgets/scene_background.dart';
 import '../../data/models/user_settings.dart';
+import '../../data/services/notification_service.dart';
 import '../../data/services/settings_service.dart';
 import '../../providers/settings_provider.dart';
 
@@ -134,6 +138,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     await settingsService.saveSettings(settings);
     await settingsService.savePin(_pinController.text);
     await settingsService.completeOnboarding();
+    await NotificationService().scheduleWakeSleepReminders(
+      wakeHour: _wakeHour,
+      sleepHour: _sleepHour,
+    );
 
     if (mounted) {
       await context.read<SettingsProvider>().load();
@@ -143,65 +151,82 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildProgressBar(),
-            Expanded(
-              child: PageView(
-                controller: _pageController,
-                physics: const NeverScrollableScrollPhysics(),
-                onPageChanged: (i) => setState(() => _currentPage = i),
-                children: [
-                  _buildWelcomePage(),
-                  _buildProfilePage(),
-                  _buildAppsPage(),
-                  _buildLimitsPage(),
-                  _buildSecurityPage(),
-                  _buildDonePage(),
-                ],
+    return SceneBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: SafeArea(
+          child: Column(
+            children: [
+              _buildProgressBar(),
+              Expanded(
+                child: PageView(
+                  controller: _pageController,
+                  physics: const NeverScrollableScrollPhysics(),
+                  onPageChanged: (i) => setState(() => _currentPage = i),
+                  children: [
+                    _buildWelcomePage(),
+                    _buildProfilePage(),
+                    _buildAppsPage(),
+                    _buildLimitsPage(),
+                    _buildSecurityPage(),
+                    _buildDonePage(),
+                  ],
+                ),
               ),
-            ),
-            _buildBottomBar(),
-          ],
+              _buildBottomBar(),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildProgressBar() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Step ${_currentPage + 1} of $_totalPages',
-                  style: Theme.of(context).textTheme.bodySmall),
-              Text('${((_currentPage + 1) / _totalPages * 100).round()}%',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.primary)),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: (_currentPage + 1) / _totalPages,
-              backgroundColor: AppTheme.bgCardLight,
-              valueColor: const AlwaysStoppedAnimation(AppTheme.primary),
-              minHeight: 4,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.88),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.white.withOpacity(0.8)),
+          boxShadow: const [
+            BoxShadow(color: AppTheme.shadow, blurRadius: 16, offset: Offset(0, 8)),
+          ],
+        ),
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Step ${_currentPage + 1} of $_totalPages',
+                    style: Theme.of(context).textTheme.bodySmall),
+                Text('${((_currentPage + 1) / _totalPages * 100).round()}%',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppTheme.primary,
+                          fontWeight: FontWeight.w700,
+                        )),
+              ],
             ),
-          ),
-        ],
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                value: (_currentPage + 1) / _totalPages,
+                backgroundColor: AppTheme.bgCardLight,
+                valueColor: const AlwaysStoppedAnimation(AppTheme.primary),
+                minHeight: 8,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildBottomBar() {
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
       child: Row(
         children: [
           if (_currentPage > 0)
@@ -210,6 +235,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               child: TextButton(
                 onPressed: () => _pageController.previousPage(
                     duration: const Duration(milliseconds: 300), curve: Curves.easeInOut),
+                style: TextButton.styleFrom(
+                  backgroundColor: Colors.white.withOpacity(0.72),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                ),
                 child: const Text('Back'),
               ),
             ),
@@ -220,7 +250,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               onPressed: _isSaving ? null : _next,
               child: _isSaving
                   ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                  : Text(_currentPage == _totalPages - 1 ? 'Get Started 🚀' : 'Continue'),
+                  : Text(_currentPage == _totalPages - 1 ? 'Get Started' : 'Continue'),
             ),
           ),
         ],
@@ -235,41 +265,59 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Text('🔒', style: TextStyle(fontSize: 80)),
-          const SizedBox(height: 24),
-          Text('Welcome to\nFocusLock',
+          const FocusLockMark(size: 84),
+          const SizedBox(height: 20),
+          Text('FocusLock',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.displayMedium?.copyWith(
                     color: AppTheme.primary,
-                    height: 1.2,
+                    height: 1.0,
+                    letterSpacing: -0.8,
+                  )),
+          const SizedBox(height: 6),
+          Text('Take back your attention.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w700,
                   )),
           const SizedBox(height: 16),
           Text(
-            'Take back control of your time.\nWe\'ll help you set up smart limits\nthat actually work.',
+            'We will set your rhythm, limits, and reminders\nso FocusLock supports your day without friction.',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: AppTheme.textSecondary),
           ),
           const SizedBox(height: 32),
-          _featureChip('📊 Track all apps at once'),
-          _featureChip('🔐 Smart challenge unlock'),
-          _featureChip('🔔 Smart notifications'),
-          _featureChip('📈 Usage history'),
+          _featureChip(Icons.query_stats_rounded, 'Track all apps at once'),
+          _featureChip(Icons.lock_reset_rounded, 'Smart challenge unlock'),
+          _featureChip(Icons.notifications_none_rounded, 'Smart notifications'),
+          _featureChip(Icons.insights_rounded, 'Usage history'),
         ],
       ),
     );
   }
 
-  Widget _featureChip(String label) {
+  Widget _featureChip(IconData icon, String label) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
         decoration: BoxDecoration(
-          color: AppTheme.bgCard,
-          borderRadius: BorderRadius.circular(30),
+          color: Colors.white.withOpacity(0.9),
+          borderRadius: BorderRadius.circular(999),
           border: Border.all(color: AppTheme.divider),
+          boxShadow: const [
+            BoxShadow(color: AppTheme.shadow, blurRadius: 12, offset: Offset(0, 6)),
+          ],
         ),
-        child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: AppTheme.primary),
+            const SizedBox(width: 8),
+            Text(label, style: Theme.of(context).textTheme.bodyMedium),
+          ],
+        ),
       ),
     );
   }
@@ -279,7 +327,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _pageTitle('👋 Tell us about you'),
+          _pageTitle('Tell us about you'),
           const SizedBox(height: 8),
           Text('This helps personalise your experience.',
               style: Theme.of(context).textTheme.bodyMedium),
@@ -293,28 +341,255 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           Text('What time do you usually wake up?',
               style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 12),
-          _timeSlider('Wake up', _wakeHour, 4, 12, (v) => setState(() => _wakeHour = v.round())),
+          _timePickerCard(
+            label: 'Wake up',
+            hour: _wakeHour,
+            onTap: () => _pickHour(
+              initialHour: _wakeHour,
+              onPicked: (h) => setState(() => _wakeHour = h),
+            ),
+          ),
           const SizedBox(height: 24),
           Text('What time do you usually sleep?',
               style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 12),
-          _timeSlider('Sleep', _sleepHour, 18, 26, (v) {
-            setState(() => _sleepHour = v.round() > 23 ? v.round() - 24 : v.round());
-          }),
+          _timePickerCard(
+            label: 'Sleep',
+            hour: _sleepHour,
+            onTap: () => _pickHour(
+              initialHour: _sleepHour,
+              onPicked: (h) => setState(() => _sleepHour = h),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'We will set a wake-up alarm and a sleep reminder at these times.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
         ],
       ),
     );
   }
 
-  Widget _timeSlider(String label, int hour, double min, double max, ValueChanged<double> onChanged) {
-    final displayHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
+  Future<void> _pickHour({
+    required int initialHour,
+    required ValueChanged<int> onPicked,
+  }) async {
+    final selected = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: initialHour, minute: 0),
+      initialEntryMode: TimePickerEntryMode.dial,
+    );
+
+    if (selected == null) return;
+    onPicked(selected.hour);
+  }
+
+  Future<void> _pickMinutes({
+    required String title,
+    required int initialValue,
+    required int min,
+    required int max,
+    required ValueChanged<int> onPicked,
+  }) async {
+    final clampedInitial = initialValue.clamp(min, max);
+    final wheelController = FixedExtentScrollController(initialItem: clampedInitial - min);
+
+    final selected = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        int draft = clampedInitial;
+        return StatefulBuilder(
+          builder: (ctx2, setLocal) => SafeArea(
+            child: Container(
+              margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              decoration: BoxDecoration(
+                color: AppTheme.bgCard,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: AppTheme.divider),
+                boxShadow: const [
+                  BoxShadow(color: AppTheme.shadow, blurRadius: 20, offset: Offset(0, 10)),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 42,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: AppTheme.divider,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(title, style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 4),
+                  Text('Choose a value from $min to $max minutes',
+                      style: Theme.of(context).textTheme.bodySmall),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _minuteQuickPicks(min, max).map((pick) {
+                      final selectedPick = draft == pick;
+                      return ChoiceChip(
+                        label: Text(_formatDurationShort(pick)),
+                        selected: selectedPick,
+                        onSelected: (_) {
+                          setLocal(() => draft = pick);
+                          wheelController.animateToItem(
+                            pick - min,
+                            duration: const Duration(milliseconds: 180),
+                            curve: Curves.easeOut,
+                          );
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    height: 170,
+                    child: CupertinoPicker(
+                      scrollController: wheelController,
+                      itemExtent: 42,
+                      magnification: 1.08,
+                      useMagnifier: true,
+                      onSelectedItemChanged: (index) => setLocal(() => draft = min + index),
+                      children: List.generate(
+                        max - min + 1,
+                        (index) => Center(
+                          child: Text(
+                            _formatDurationLong(min + index),
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('Cancel'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.pop(ctx, draft),
+                          child: const Text('Set Limit'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    wheelController.dispose();
+    if (selected == null) return;
+    onPicked(selected);
+  }
+
+  List<int> _minuteQuickPicks(int min, int max) {
+    const picks = [10, 15, 20, 30, 45, 60, 90, 120, 180, 240];
+    return picks.where((m) => m >= min && m <= max).toList();
+  }
+
+  String _formatDurationShort(int minutes) {
+    if (minutes < 60) return '${minutes}m';
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    return m == 0 ? '${h}h' : '${h}h ${m}m';
+  }
+
+  String _formatDurationLong(int minutes) {
+    if (minutes < 60) return '${minutes} min';
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    return m == 0 ? '${h}h 0m (${minutes} min)' : '${h}h ${m}m (${minutes} min)';
+  }
+
+  Widget _timePickerCard({
+    required String label,
+    required int hour,
+    required VoidCallback onTap,
+  }) {
+    final displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
     final period = hour >= 12 ? 'PM' : 'AM';
-    return Column(
-      children: [
-        Text('$displayHour:00 $period',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(color: AppTheme.primary)),
-        Slider(value: hour.toDouble().clamp(min, max), min: min, max: max, onChanged: onChanged),
-      ],
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.92),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppTheme.divider),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ),
+            Text(
+              '$displayHour:00 $period',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(color: AppTheme.primary),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.schedule_rounded, size: 18, color: AppTheme.textMuted),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _minutesPickerCard({
+    required String label,
+    required String valueLabel,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.92),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppTheme.divider),
+        ),
+        child: Row(
+          children: [
+            Expanded(child: Text(label, style: Theme.of(context).textTheme.bodyMedium)),
+            Text(
+              valueLabel,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(color: AppTheme.primary),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.tune_rounded, size: 18, color: AppTheme.textMuted),
+          ],
+        ),
+      ),
     );
   }
 
@@ -323,7 +598,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _pageTitle('📱 Which apps should we monitor?'),
+            _pageTitle('Which apps should we monitor?'),
           const SizedBox(height: 8),
           Text('Select all your social media apps.',
               style: Theme.of(context).textTheme.bodyMedium),
@@ -366,7 +641,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _pageTitle('⏱️ Set your limits'),
+            _pageTitle('Set your limits'),
             const SizedBox(height: 8),
             Text('These can be changed anytime in Settings.',
                 style: Theme.of(context).textTheme.bodyMedium),
@@ -377,18 +652,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 6),
-            Text(
-              _dailyLimitMinutes < 60
-                  ? '$_dailyLimitMinutes minutes'
-                  : '${_dailyLimitMinutes ~/ 60}h ${_dailyLimitMinutes % 60}m',
-              style: Theme.of(context).textTheme.displayMedium?.copyWith(color: AppTheme.primary),
-            ),
-            Slider(
-                value: _dailyLimitMinutes.toDouble(),
-                min: 15,
+            _minutesPickerCard(
+              label: 'Daily limit',
+              valueLabel: _formatDurationLong(_dailyLimitMinutes),
+              onTap: () => _pickMinutes(
+                title: 'Set daily limit',
+                initialValue: _dailyLimitMinutes,
+                min: 2,
                 max: 360,
-                divisions: 23,
-                onChanged: (v) => setState(() => _dailyLimitMinutes = v.round())),
+                onPicked: (v) => setState(() => _dailyLimitMinutes = v),
+              ),
+            ),
             const SizedBox(height: 16),
             _sectionLabel('Cooldown before unlock'),
             Text(
@@ -396,14 +670,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 6),
-            Text('$_cooldownMinutes minutes',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(color: AppTheme.accent)),
-            Slider(
-                value: _cooldownMinutes.toDouble(),
+            _minutesPickerCard(
+              label: 'Cooldown',
+              valueLabel: _formatDurationLong(_cooldownMinutes),
+              onTap: () => _pickMinutes(
+                title: 'Set cooldown',
+                initialValue: _cooldownMinutes,
                 min: 5,
                 max: 120,
-                divisions: 23,
-                onChanged: (v) => setState(() => _cooldownMinutes = v.round())),
+                onPicked: (v) => setState(() => _cooldownMinutes = v),
+              ),
+            ),
             const SizedBox(height: 16),
             _sectionLabel('Extra time per unlock'),
             Text(
@@ -411,14 +688,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 6),
-            Text('$_extraUnlockMinutes minutes',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(color: AppTheme.warning)),
-            Slider(
-                value: _extraUnlockMinutes.toDouble(),
+            _minutesPickerCard(
+              label: 'Extra unlock time',
+              valueLabel: _formatDurationLong(_extraUnlockMinutes),
+              onTap: () => _pickMinutes(
+                title: 'Set extra unlock time',
+                initialValue: _extraUnlockMinutes,
                 min: 5,
                 max: 60,
-                divisions: 11,
-                onChanged: (v) => setState(() => _extraUnlockMinutes = v.round())),
+                onPicked: (v) => setState(() => _extraUnlockMinutes = v),
+              ),
+            ),
             const SizedBox(height: 16),
             _sectionLabel('Max unlocks per day'),
             Text(
@@ -449,7 +729,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _pageTitle('🔐 Set your PIN'),
+            _pageTitle('Set your PIN'),
             const SizedBox(height: 8),
             Text('Used to access Settings. If you forget it, your security questions will help you recover it.',
                 style: Theme.of(context).textTheme.bodyMedium),
@@ -545,21 +825,21 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Text('🎉', style: TextStyle(fontSize: 80)),
+          const Icon(Icons.verified_rounded, size: 80, color: AppTheme.primary),
           const SizedBox(height: 24),
           Text("You're all set!",
               style: Theme.of(context).textTheme.displayMedium?.copyWith(color: AppTheme.primary)),
           const SizedBox(height: 16),
           Text(
-            'FocusLock will now monitor your social media usage and lock apps when you hit your limit.\n\nYou\'ve got this. 💪',
+            'FocusLock will now monitor your social media usage and lock apps when you hit your limit.\n\nYou\'re set.',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: AppTheme.textSecondary),
           ),
           const SizedBox(height: 32),
-          _summaryChip('🕐 Daily limit: ${_dailyLimitMinutes ~/ 60}h ${_dailyLimitMinutes % 60}m'),
-          _summaryChip('🔒 Cooldown: $_cooldownMinutes min'),
-          _summaryChip('📱 Monitoring: ${_selectedApps.length} apps'),
-          _summaryChip('🔑 Max unlocks: $_maxUnlocks/day'),
+          _summaryChip('Daily limit: ${_dailyLimitMinutes ~/ 60}h ${_dailyLimitMinutes % 60}m'),
+          _summaryChip('Cooldown: $_cooldownMinutes min'),
+          _summaryChip('Monitoring: ${_selectedApps.length} apps'),
+          _summaryChip('Max unlocks: $_maxUnlocks/day'),
         ],
       ),
     );
@@ -571,9 +851,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           decoration: BoxDecoration(
-            color: AppTheme.bgCard,
-            borderRadius: BorderRadius.circular(12),
+            color: Colors.white.withOpacity(0.9),
+            borderRadius: BorderRadius.circular(18),
             border: Border.all(color: AppTheme.primary.withOpacity(0.3)),
+            boxShadow: const [
+              BoxShadow(color: AppTheme.shadow, blurRadius: 10, offset: Offset(0, 4)),
+            ],
           ),
           child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
         ),
@@ -595,8 +878,19 @@ class _PageWrapper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
-      child: child,
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.88),
+          borderRadius: BorderRadius.circular(30),
+          border: Border.all(color: Colors.white.withOpacity(0.8)),
+          boxShadow: const [
+            BoxShadow(color: AppTheme.shadow, blurRadius: 24, offset: Offset(0, 12)),
+          ],
+        ),
+        child: child,
+      ),
     );
   }
 }
@@ -616,16 +910,28 @@ class _AppTile extends StatelessWidget {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          color: selected ? AppTheme.primary.withOpacity(0.15) : AppTheme.bgCard,
-          borderRadius: BorderRadius.circular(12),
+          color: selected ? AppTheme.primary.withOpacity(0.12) : Colors.white.withOpacity(0.94),
+          borderRadius: BorderRadius.circular(18),
           border: Border.all(
             color: selected ? AppTheme.primary : AppTheme.divider,
             width: selected ? 1.5 : 1,
           ),
+          boxShadow: const [
+            BoxShadow(color: AppTheme.shadow, blurRadius: 12, offset: Offset(0, 6)),
+          ],
         ),
         child: Row(
           children: [
-            Text(app.emoji, style: const TextStyle(fontSize: 24)),
+            Container(
+              width: 40,
+              height: 40,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AppTheme.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(app.icon, color: AppTheme.primary, size: 19),
+            ),
             const SizedBox(width: 16),
             Text(app.displayName, style: Theme.of(context).textTheme.titleMedium),
             const Spacer(),

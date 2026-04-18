@@ -3,6 +3,7 @@ import 'package:app_usage/app_usage.dart';
 import '../data/services/settings_service.dart';
 import '../data/services/database_service.dart';
 import '../data/models/app_usage_model.dart';
+import '../core/constants/app_constants.dart';
 import '../core/constants/social_apps.dart';
 import '../core/utils/time_utils.dart';
 
@@ -12,6 +13,7 @@ class UsageProvider extends ChangeNotifier {
 
   int _totalMinutesToday = 0;
   int _limitMinutes = 60;
+  int _effectiveLimitMinutes = 60;
   bool _isLocked = false;
   bool _isCooldownExpired = false;
   DateTime? _cooldownEndTime;
@@ -19,9 +21,9 @@ class UsageProvider extends ChangeNotifier {
   bool _isLoading = true;
 
   int get totalMinutesToday => _totalMinutesToday;
-  int get limitMinutes => _limitMinutes;
-  int get remainingMinutes => (_limitMinutes - _totalMinutesToday).clamp(0, _limitMinutes);
-  double get usagePercent => (_totalMinutesToday / _limitMinutes).clamp(0.0, 1.0);
+  int get limitMinutes => _effectiveLimitMinutes;
+  int get remainingMinutes => (_effectiveLimitMinutes - _totalMinutesToday).clamp(0, _effectiveLimitMinutes);
+  double get usagePercent => (_totalMinutesToday / (_effectiveLimitMinutes <= 0 ? 1 : _effectiveLimitMinutes)).clamp(0.0, 1.0);
   bool get isLocked => _isLocked;
   bool get isCooldownExpired => _isCooldownExpired;
   DateTime? get cooldownEndTime => _cooldownEndTime;
@@ -30,6 +32,19 @@ class UsageProvider extends ChangeNotifier {
 
   Future<void> refresh(List<String> monitoredApps, int limitMinutes) async {
     _limitMinutes = limitMinutes;
+
+    if (!AppConstants.enableTracking) {
+      _isLocked = false;
+      _isCooldownExpired = true;
+      _cooldownEndTime = null;
+      _todayEntries = _buildDesignEntries(monitoredApps);
+      _totalMinutesToday = _todayEntries.fold(0, (s, e) => s + e.durationMinutes);
+      _effectiveLimitMinutes = _limitMinutes;
+      _isLoading = false;
+      notifyListeners();
+      return;
+    }
+
     _isLocked = await _settingsService.isLocked();
     _cooldownEndTime = await _settingsService.getCooldownEndTime();
     _isCooldownExpired = await _settingsService.isCooldownExpired();
@@ -42,6 +57,9 @@ class UsageProvider extends ChangeNotifier {
     if (_todayEntries.isEmpty && monitoredApps.isNotEmpty) {
       await _fetchDirect(monitoredApps);
     }
+
+    await _refreshEffectiveLimit();
+    await _applyLockIfLimitReached();
 
     _isLoading = false;
     notifyListeners();
@@ -78,6 +96,7 @@ class UsageProvider extends ChangeNotifier {
     _isLocked = false;
     _cooldownEndTime = null;
     _isCooldownExpired = false;
+    await _refreshEffectiveLimit();
     notifyListeners();
   }
 
@@ -86,13 +105,59 @@ class UsageProvider extends ChangeNotifier {
   Future<int> getTodayUnlockCount() => _settingsService.getTodayUnlockCount();
   Future<int> getTodayPickupCount() => _settingsService.getTodayPickupCount();
 
-  void updateFromBackground(int totalMinutes) {
+  Future<void> updateFromBackground(int totalMinutes) async {
+    if (!AppConstants.enableTracking) return;
     _totalMinutesToday = totalMinutes;
+    await _refreshEffectiveLimit();
+    await _applyLockIfLimitReached();
     notifyListeners();
   }
 
   void triggerLock() {
     _isLocked = true;
     notifyListeners();
+  }
+
+  Future<void> _applyLockIfLimitReached() async {
+    if (_isLocked || _effectiveLimitMinutes <= 0 || _totalMinutesToday < _effectiveLimitMinutes) {
+      return;
+    }
+
+    final settings = await _settingsService.loadSettings();
+    await _settingsService.setLocked(true, cooldownMinutes: settings.cooldownMinutes);
+    _isLocked = true;
+    _cooldownEndTime = await _settingsService.getCooldownEndTime();
+    _isCooldownExpired = await _settingsService.isCooldownExpired();
+  }
+
+  Future<void> _refreshEffectiveLimit() async {
+    final settings = await _settingsService.loadSettings();
+    final usedUnlocks = await _settingsService.getTodayUnlockCount();
+    _effectiveLimitMinutes = _limitMinutes + (usedUnlocks * settings.extraUnlockMinutes);
+  }
+
+  List<AppUsageEntry> _buildDesignEntries(List<String> monitoredApps) {
+    final now = TimeUtils.todayKey();
+    final seedPackages = monitoredApps.isNotEmpty
+        ? monitoredApps
+        : SocialApps.all.take(4).map((e) => e.packageName).toList();
+
+    final designMinutes = <int>[40, 35, 17, 11, 9, 7];
+    final entries = <AppUsageEntry>[];
+
+    for (int i = 0; i < seedPackages.length && i < designMinutes.length; i++) {
+      final pkg = seedPackages[i];
+      final app = SocialApps.fromPackage(pkg);
+      entries.add(
+        AppUsageEntry(
+          date: now,
+          packageName: pkg,
+          appName: app?.displayName ?? 'App ${i + 1}',
+          durationMinutes: designMinutes[i],
+        ),
+      );
+    }
+
+    return entries;
   }
 }

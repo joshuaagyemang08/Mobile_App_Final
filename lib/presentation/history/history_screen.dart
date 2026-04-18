@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/time_utils.dart';
+import '../../core/widgets/scene_background.dart';
 import '../../data/services/database_service.dart';
 import '../../data/models/app_usage_model.dart';
 
@@ -30,25 +31,30 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Usage History')),
-      body: _summaries == null
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(20),
-              children: [
-                _buildBarChart(),
-                const SizedBox(height: 20),
-                _buildDaySelector(),
-                const SizedBox(height: 16),
-                _buildDayBreakdown(),
-              ],
-            ),
+    return SceneBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(title: const Text('Usage History')),
+        body: _summaries == null
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                children: [
+                  _buildBarChart(),
+                  const SizedBox(height: 20),
+                  _buildDaySelector(),
+                  const SizedBox(height: 16),
+                  _buildDayBreakdown(),
+                ],
+              ),
+      ),
     );
   }
 
   Widget _buildBarChart() {
     if (_summaries == null || _summaries!.isEmpty) return const SizedBox();
+    final surface = Theme.of(context).cardColor;
+    final border = Theme.of(context).dividerColor;
     final maxVal = _summaries!.map((s) => s.totalMinutes).fold(0, (a, b) => a > b ? a : b).toDouble();
     final safeMax = maxVal < 60 ? 60.0 : maxVal + 20;
 
@@ -56,9 +62,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
       height: 220,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppTheme.bgCard,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.divider),
+        color: surface,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: border),
+        boxShadow: const [
+          BoxShadow(color: AppTheme.shadow, blurRadius: 18, offset: Offset(0, 8)),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -143,9 +152,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
               margin: const EdgeInsets.only(right: 8),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: isSelected ? AppTheme.primary : AppTheme.bgCard,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: isSelected ? AppTheme.primary : AppTheme.divider),
+                color: isSelected ? AppTheme.primary : Theme.of(context).cardColor,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: isSelected ? AppTheme.primary : Theme.of(context).dividerColor),
               ),
               child: Text(
                 TimeUtils.friendlyDate(date),
@@ -163,18 +172,23 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Widget _buildDayBreakdown() {
     if (_summaries == null) return const SizedBox();
     final selected = _summaries![_selectedDayIndex];
+    final surface = Theme.of(context).cardColor;
+    final border = Theme.of(context).dividerColor;
 
     if (selected.entries.isEmpty) {
       return Container(
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
-          color: AppTheme.bgCard,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.divider),
+          color: surface,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: border),
+          boxShadow: const [
+            BoxShadow(color: AppTheme.shadow, blurRadius: 16, offset: Offset(0, 8)),
+          ],
         ),
         child: Column(
           children: [
-            const Text('📭', style: TextStyle(fontSize: 40)),
+            const Icon(Icons.inbox_outlined, size: 40, color: AppTheme.textMuted),
             const SizedBox(height: 8),
             Text('No data for this day.', style: Theme.of(context).textTheme.bodyMedium),
           ],
@@ -199,9 +213,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
               margin: const EdgeInsets.only(bottom: 8),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: AppTheme.bgCard,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.divider),
+                color: surface,
+                  borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: border),
+                  boxShadow: const [
+                    BoxShadow(color: AppTheme.shadow, blurRadius: 10, offset: Offset(0, 4)),
+                  ],
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,

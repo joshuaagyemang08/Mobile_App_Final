@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/constants/social_apps.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/focuslock_brand.dart';
+import '../../core/widgets/scene_background.dart';
+import '../../data/services/auth_service.dart';
+import '../../data/services/notification_service.dart';
 import '../../providers/settings_provider.dart';
+import '../../providers/theme_provider.dart';
 import '../../data/models/user_settings.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -15,11 +21,179 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _pinVerified = false;
+  String _email = '';
+
+  Future<void> _pickHour({
+    required int currentHour,
+    required ValueChanged<int> onPicked,
+  }) async {
+    final selected = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: currentHour, minute: 0),
+      initialEntryMode: TimePickerEntryMode.dial,
+    );
+    if (selected == null) return;
+    onPicked(selected.hour);
+  }
+
+  Future<void> _pickMinutes({
+    required String title,
+    required int initialValue,
+    required int min,
+    required int max,
+    required ValueChanged<int> onPicked,
+  }) async {
+    final clampedInitial = initialValue.clamp(min, max);
+    final wheelController = FixedExtentScrollController(initialItem: clampedInitial - min);
+
+    final selected = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        int draft = clampedInitial;
+        return StatefulBuilder(
+          builder: (ctx2, setLocal) => SafeArea(
+            child: Container(
+              margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).cardColor,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: Theme.of(context).dividerColor),
+                boxShadow: const [
+                  BoxShadow(color: AppTheme.shadow, blurRadius: 20, offset: Offset(0, 10)),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 42,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).dividerColor,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(title, style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 4),
+                  Text('Choose a value from $min to $max minutes',
+                      style: Theme.of(context).textTheme.bodySmall),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _minuteQuickPicks(min, max).map((pick) {
+                      final selectedPick = draft == pick;
+                      return ChoiceChip(
+                        label: Text(_formatDurationShort(pick)),
+                        selected: selectedPick,
+                        onSelected: (_) {
+                          setLocal(() => draft = pick);
+                          wheelController.animateToItem(
+                            pick - min,
+                            duration: const Duration(milliseconds: 180),
+                            curve: Curves.easeOut,
+                          );
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    height: 170,
+                    child: CupertinoPicker(
+                      scrollController: wheelController,
+                      itemExtent: 42,
+                      magnification: 1.08,
+                      useMagnifier: true,
+                      onSelectedItemChanged: (index) => setLocal(() => draft = min + index),
+                      children: List.generate(
+                        max - min + 1,
+                        (index) => Center(
+                          child: Text(
+                            _formatDurationLong(min + index),
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('Cancel'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.pop(ctx, draft),
+                          child: const Text('Set Limit'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    wheelController.dispose();
+    if (selected == null) return;
+    onPicked(selected);
+  }
+
+  List<int> _minuteQuickPicks(int min, int max) {
+    const picks = [10, 15, 20, 30, 45, 60, 90, 120, 180, 240];
+    return picks.where((m) => m >= min && m <= max).toList();
+  }
+
+  String _formatDurationShort(int minutes) {
+    if (minutes < 60) return '${minutes}m';
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    return m == 0 ? '${h}h' : '${h}h ${m}m';
+  }
+
+  String _formatDurationLong(int minutes) {
+    if (minutes < 60) return '${minutes} min';
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    return m == 0 ? '${h}h 0m (${minutes} min)' : '${h}h ${m}m (${minutes} min)';
+  }
+
+  Future<void> _saveWakeSleep(SettingsProvider sp, UserSettings s, {int? wakeHour, int? sleepHour}) async {
+    final updated = s.copyWith(
+      wakeHour: wakeHour ?? s.wakeHour,
+      sleepHour: sleepHour ?? s.sleepHour,
+    );
+    await sp.update(updated);
+    await NotificationService().scheduleWakeSleepReminders(
+      wakeHour: updated.wakeHour,
+      sleepHour: updated.sleepHour,
+    );
+  }
 
   @override
   void initState() {
     super.initState();
+    _loadEmail();
     WidgetsBinding.instance.addPostFrameCallback((_) => _askForPin());
+  }
+
+  Future<void> _loadEmail() async {
+    final email = await AuthService().getUserEmail();
+    if (!mounted) return;
+    setState(() => _email = email ?? 'focuslock.user@example.com');
   }
 
   Future<void> _askForPin() async {
@@ -43,157 +217,282 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     final sp = context.watch<SettingsProvider>();
     final s = sp.settings;
+    final themeProvider = context.watch<ThemeProvider>();
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          // ── DAILY LIMITS ──────────────────────────────────
-          const _SectionHeader('⏱️ Time Limits'),
-          _SliderTile(
-            label: 'Daily Social Media Limit',
-            valueLabel: '${s.dailyLimitMinutes ~/ 60}h ${s.dailyLimitMinutes % 60}m',
-            value: s.dailyLimitMinutes.toDouble(),
-            min: 15,
-            max: 360,
-            divisions: 23,
-            onChanged: (v) => sp.update(s.copyWith(dailyLimitMinutes: v.round())),
-          ),
-          _SliderTile(
-            label: 'Cooldown Duration',
-            valueLabel: '${s.cooldownMinutes} min',
-            value: s.cooldownMinutes.toDouble(),
-            min: 5,
-            max: 120,
-            divisions: 23,
-            onChanged: (v) => sp.update(s.copyWith(cooldownMinutes: v.round())),
-          ),
-          _SliderTile(
-            label: 'Extra Time Per Unlock',
-            valueLabel: '${s.extraUnlockMinutes} min',
-            value: s.extraUnlockMinutes.toDouble(),
-            min: 5,
-            max: 60,
-            divisions: 11,
-            onChanged: (v) => sp.update(s.copyWith(extraUnlockMinutes: v.round())),
-          ),
-          _StepperTile(
-            label: 'Max Unlocks Per Day',
-            value: s.maxUnlocksPerDay,
-            min: 1,
-            max: 5,
-            onDecrement: () => sp.update(s.copyWith(maxUnlocksPerDay: s.maxUnlocksPerDay - 1)),
-            onIncrement: () => sp.update(s.copyWith(maxUnlocksPerDay: s.maxUnlocksPerDay + 1)),
-          ),
-
-          // ── MONITORED APPS ────────────────────────────────
-          const _SectionHeader('📱 Monitored Apps'),
-          Container(
-            decoration: BoxDecoration(
-              color: AppTheme.bgCard,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppTheme.divider),
+    return SceneBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(title: const Text('Profile & Settings')),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+          children: [
+            _ProfileHeroCard(
+              userName: s.userName.isEmpty ? 'FocusLock User' : s.userName,
+              email: _email,
+              limitLabel: s.dailyLimitMinutes < 60
+                  ? '${s.dailyLimitMinutes} min/day'
+                  : '${s.dailyLimitMinutes ~/ 60}h ${s.dailyLimitMinutes % 60}m/day',
+              trackedCount: s.monitoredApps.length,
             ),
-            child: Column(
-              children: SocialApps.all.map((app) {
-                final selected = s.monitoredApps.contains(app.packageName);
-                return SwitchListTile(
-                  title: Text('${app.emoji}  ${app.displayName}',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 14)),
-                  value: selected,
-                  onChanged: (v) {
-                    final updated = List<String>.from(s.monitoredApps);
-                    if (v) {
-                      updated.add(app.packageName);
-                    } else {
-                      updated.remove(app.packageName);
-                    }
-                    sp.update(s.copyWith(monitoredApps: updated));
-                  },
-                );
-              }).toList(),
-            ),
-          ),
 
-          // ── LOCK SCHEDULE ─────────────────────────────────
-          const _SectionHeader('📅 Lock Schedule'),
-          _Card(
-            child: Column(
-              children: [
-                SwitchListTile(
-                  title: Text('Enable Scheduled Lock',
-                      style: Theme.of(context).textTheme.titleMedium),
-                  subtitle: Text('Only lock during specific hours',
-                      style: Theme.of(context).textTheme.bodySmall),
-                  value: s.lockScheduleEnabled,
-                  onChanged: (v) => sp.update(s.copyWith(lockScheduleEnabled: v)),
-                ),
-                if (s.lockScheduleEnabled) ...[
-                  const Divider(height: 1),
-                  _HourPickerTile(
-                    label: 'Start Hour',
-                    hour: s.scheduleStartHour,
-                    onChanged: (h) => sp.update(s.copyWith(scheduleStartHour: h)),
+            _SectionBlock(
+              icon: Icons.tune_rounded,
+              title: 'Focus Lock',
+              subtitle: 'Set daily boundaries and unlock behaviour',
+              initiallyExpanded: true,
+              child: Column(
+                children: [
+                  _PickerTile(
+                    label: 'Daily Social Media Limit',
+                    valueLabel: _formatDurationLong(s.dailyLimitMinutes),
+                    onTap: () => _pickMinutes(
+                      title: 'Set daily limit',
+                      initialValue: s.dailyLimitMinutes,
+                      min: 2,
+                      max: 360,
+                      onPicked: (v) => sp.update(s.copyWith(dailyLimitMinutes: v)),
+                    ),
                   ),
-                  _HourPickerTile(
-                    label: 'End Hour',
-                    hour: s.scheduleEndHour,
-                    onChanged: (h) => sp.update(s.copyWith(scheduleEndHour: h)),
+                  _PickerTile(
+                    label: 'Cooldown Duration',
+                    valueLabel: _formatDurationLong(s.cooldownMinutes),
+                    onTap: () => _pickMinutes(
+                      title: 'Set cooldown',
+                      initialValue: s.cooldownMinutes,
+                      min: 5,
+                      max: 120,
+                      onPicked: (v) => sp.update(s.copyWith(cooldownMinutes: v)),
+                    ),
+                  ),
+                  _PickerTile(
+                    label: 'Extra Time Per Unlock',
+                    valueLabel: _formatDurationLong(s.extraUnlockMinutes),
+                    onTap: () => _pickMinutes(
+                      title: 'Set extra unlock time',
+                      initialValue: s.extraUnlockMinutes,
+                      min: 5,
+                      max: 60,
+                      onPicked: (v) => sp.update(s.copyWith(extraUnlockMinutes: v)),
+                    ),
+                  ),
+                  _StepperTile(
+                    label: 'Max Unlocks Per Day',
+                    value: s.maxUnlocksPerDay,
+                    min: 1,
+                    max: 5,
+                    onDecrement: () => sp.update(s.copyWith(maxUnlocksPerDay: s.maxUnlocksPerDay - 1)),
+                    onIncrement: () => sp.update(s.copyWith(maxUnlocksPerDay: s.maxUnlocksPerDay + 1)),
                   ),
                 ],
-              ],
+              ),
             ),
-          ),
 
-          // ── SENSORS ───────────────────────────────────────
-          const _SectionHeader('📡 Sensors'),
-          _Card(
-            child: SwitchListTile(
-              title: Text('Track Phone Pickups',
-                  style: Theme.of(context).textTheme.titleMedium),
-              subtitle: Text('Use accelerometer to count how often you pick up your phone',
-                  style: Theme.of(context).textTheme.bodySmall),
-              value: s.accelerometerEnabled,
-              onChanged: (v) => sp.update(s.copyWith(accelerometerEnabled: v)),
-            ),
-          ),
-
-          // ── SECURITY ──────────────────────────────────────
-          const _SectionHeader('🔐 Security'),
-          _Card(
-            child: Column(
-              children: [
-                ListTile(
-                  title: Text('Change PIN', style: Theme.of(context).textTheme.titleMedium),
-                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                  onTap: () => _showChangePinDialog(context, sp),
+            _SectionBlock(
+              icon: Icons.apps_rounded,
+              title: 'Monitored Apps',
+              subtitle: 'Choose which apps count toward your limit',
+              child: _Card(
+                child: Column(
+                  children: SocialApps.all.map((app) {
+                    final selected = s.monitoredApps.contains(app.packageName);
+                    return SwitchListTile(
+                      secondary: Container(
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                          color: AppTheme.primary.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        alignment: Alignment.center,
+                        child: Icon(app.icon, size: 16, color: AppTheme.primary),
+                      ),
+                      title: Text(app.displayName,
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 14)),
+                      value: selected,
+                      onChanged: (v) {
+                        final updated = List<String>.from(s.monitoredApps);
+                        if (v) {
+                          updated.add(app.packageName);
+                        } else {
+                          updated.remove(app.packageName);
+                        }
+                        sp.update(s.copyWith(monitoredApps: updated));
+                      },
+                    );
+                  }).toList(),
                 ),
-                const Divider(height: 1),
-                ListTile(
-                  title: Text('Update Recovery Questions',
-                      style: Theme.of(context).textTheme.titleMedium),
-                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                  onTap: () => _showSecurityQuestionDialog(context, sp, s),
-                ),
-              ],
+              ),
             ),
-          ),
 
-          // ── DANGER ZONE ───────────────────────────────────
-          const _SectionHeader('⚠️ Danger Zone'),
-          _Card(
-            child: ListTile(
-              title: Text('Reset All Settings',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(color: AppTheme.danger)),
-              subtitle: Text('Returns to default limits and clears monitored apps',
-                  style: Theme.of(context).textTheme.bodySmall),
-              trailing: const Icon(Icons.delete_outline, color: AppTheme.danger),
-              onTap: () => _confirmReset(context, sp),
+            _SectionBlock(
+              icon: Icons.schedule_rounded,
+              title: 'Automation',
+              subtitle: 'Manage lock windows and daily wake/sleep reminders',
+              child: Column(
+                children: [
+                  _Card(
+                    child: Column(
+                      children: [
+                        SwitchListTile(
+                          title: Text('Enable Scheduled Lock',
+                              style: Theme.of(context).textTheme.titleMedium),
+                          subtitle: Text('Only lock during specific hours',
+                              style: Theme.of(context).textTheme.bodySmall),
+                          value: s.lockScheduleEnabled,
+                          onChanged: (v) => sp.update(s.copyWith(lockScheduleEnabled: v)),
+                        ),
+                        if (s.lockScheduleEnabled) ...[
+                          const Divider(height: 1),
+                          ListTile(
+                            title: Text('Start Hour', style: Theme.of(context).textTheme.bodyMedium),
+                            subtitle: Text(_fmtHour(s.scheduleStartHour), style: Theme.of(context).textTheme.bodySmall),
+                            trailing: const Icon(Icons.schedule_rounded),
+                            onTap: () => _pickHour(
+                              currentHour: s.scheduleStartHour,
+                              onPicked: (h) => sp.update(s.copyWith(scheduleStartHour: h)),
+                            ),
+                          ),
+                          ListTile(
+                            title: Text('End Hour', style: Theme.of(context).textTheme.bodyMedium),
+                            subtitle: Text(_fmtHour(s.scheduleEndHour), style: Theme.of(context).textTheme.bodySmall),
+                            trailing: const Icon(Icons.schedule_rounded),
+                            onTap: () => _pickHour(
+                              currentHour: s.scheduleEndHour,
+                              onPicked: (h) => sp.update(s.copyWith(scheduleEndHour: h)),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _Card(
+                    child: Column(
+                      children: [
+                        ListTile(
+                          title: Text('Wake-up alarm', style: Theme.of(context).textTheme.titleMedium),
+                          subtitle: Text(_fmtHour(s.wakeHour), style: Theme.of(context).textTheme.bodySmall),
+                          trailing: const Icon(Icons.wb_sunny_outlined),
+                          onTap: () => _pickHour(
+                            currentHour: s.wakeHour,
+                            onPicked: (h) => _saveWakeSleep(sp, s, wakeHour: h),
+                          ),
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          title: Text('Sleep reminder', style: Theme.of(context).textTheme.titleMedium),
+                          subtitle: Text(_fmtHour(s.sleepHour), style: Theme.of(context).textTheme.bodySmall),
+                          trailing: const Icon(Icons.nightlight_round),
+                          onTap: () => _pickHour(
+                            currentHour: s.sleepHour,
+                            onPicked: (h) => _saveWakeSleep(sp, s, sleepHour: h),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 32),
-        ],
+
+            _SectionBlock(
+              icon: Icons.manage_accounts_rounded,
+              title: 'Account & Preferences',
+              subtitle: 'Security, notifications, feedback, and sign out',
+              child: Column(
+                children: [
+                  _Card(
+                    child: Column(
+                      children: [
+                        ListTile(
+                          title: Text('Change PIN', style: Theme.of(context).textTheme.titleMedium),
+                          trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                          onTap: () => _showChangePinDialog(context, sp),
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          title: Text('Update Recovery Questions',
+                              style: Theme.of(context).textTheme.titleMedium),
+                          trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                          onTap: () => _showSecurityQuestionDialog(context, sp, s),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _Card(
+                    child: Column(
+                      children: [
+                        SwitchListTile(
+                          title: Text('Dark Theme', style: Theme.of(context).textTheme.titleMedium),
+                          subtitle: Text(
+                            'Apply dark appearance across the app',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          value: themeProvider.isDarkMode,
+                          onChanged: (v) => themeProvider.setDarkMode(v),
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          title: Text('Notifications', style: Theme.of(context).textTheme.titleMedium),
+                          trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                          onTap: () => Navigator.pushNamed(context, '/notifications'),
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          title: Text('Feedback', style: Theme.of(context).textTheme.titleMedium),
+                          trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                          onTap: () => Navigator.pushNamed(context, '/feedback'),
+                        ),
+                        const Divider(height: 1),
+                        SwitchListTile(
+                          title: Text('Track Phone Pickups', style: Theme.of(context).textTheme.titleMedium),
+                          subtitle: Text(
+                            'Use accelerometer to count how often you pick up your phone',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          value: s.accelerometerEnabled,
+                          onChanged: (v) => sp.update(s.copyWith(accelerometerEnabled: v)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            _SectionBlock(
+              icon: Icons.warning_amber_rounded,
+              title: 'Danger Zone',
+              subtitle: 'Reset your app state when needed',
+              child: _Card(
+                child: ListTile(
+                  title: Text('Reset All Settings',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(color: AppTheme.danger)),
+                  subtitle: Text('Returns to default limits and clears monitored apps',
+                      style: Theme.of(context).textTheme.bodySmall),
+                  trailing: const Icon(Icons.delete_outline, color: AppTheme.danger),
+                  onTap: () => _confirmReset(context, sp),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            ElevatedButton.icon(
+              onPressed: () async {
+                await AuthService().logout();
+                if (!context.mounted) return;
+                Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1A2235),
+                foregroundColor: Colors.white,
+              ),
+              icon: const Icon(Icons.logout_rounded),
+              label: const Text('Log out'),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
       ),
     );
   }
@@ -206,11 +505,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     showDialog(context: context, builder: (_) => _SecurityQuestionDialog(sp: sp, settings: s));
   }
 
+  String _fmtHour(int h) {
+    final display = h == 0 ? 12 : (h > 12 ? h - 12 : h);
+    final period = h >= 12 ? 'PM' : 'AM';
+    return '$display:00 $period';
+  }
+
   void _confirmReset(BuildContext ctx, SettingsProvider sp) {
     showDialog(
       context: ctx,
       builder: (_) => AlertDialog(
-        backgroundColor: AppTheme.bgCard,
+        backgroundColor: Theme.of(ctx).cardColor,
         title: const Text('Reset Settings?'),
         content: const Text('This will reset all limits and clear your app list. Cannot be undone.'),
         actions: [
@@ -248,8 +553,253 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.only(top: 24, bottom: 10),
-        child: Text(title, style: Theme.of(context).textTheme.titleMedium),
+        child: Text(
+          title,
+          style: Theme.of(context)
+              .textTheme
+              .titleMedium
+              ?.copyWith(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
       );
+}
+
+class _ProfileHeroCard extends StatelessWidget {
+  final String userName;
+  final String email;
+  final String limitLabel;
+  final int trackedCount;
+
+  const _ProfileHeroCard({
+    required this.userName,
+    required this.email,
+    required this.limitLabel,
+    required this.trackedCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF121A2A), Color(0xFF1A2235)],
+        ),
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const FocusLockMark(size: 52),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      userName,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            height: 1.05,
+                          ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      email,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFFA8B1C4),
+                            height: 1.15,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  'Protected',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _HeroStatChip(
+                  label: 'Daily limit',
+                  value: limitLabel,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _HeroStatChip(
+                  label: 'Tracked apps',
+                  value: '$trackedCount selected',
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeroStatChip extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _HeroStatChip({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: const Color(0xFFA8B1C4),
+                  fontSize: 11,
+                  height: 1.1,
+                ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  height: 1.1,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionBlock extends StatefulWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Widget child;
+  final bool initiallyExpanded;
+
+  const _SectionBlock({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.child,
+    this.initiallyExpanded = false,
+  });
+
+  @override
+  State<_SectionBlock> createState() => _SectionBlockState();
+}
+
+class _SectionBlockState extends State<_SectionBlock> {
+  late bool _expanded;
+
+  @override
+  void initState() {
+    super.initState();
+    _expanded = widget.initiallyExpanded;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final titleColor = Theme.of(context).textTheme.titleMedium?.color ?? AppTheme.textPrimary;
+    final subtitleColor = isDark ? const Color(0xFFA8B1C4) : AppTheme.textSecondary;
+    final iconBg = isDark ? Colors.white.withOpacity(0.08) : AppTheme.primary.withOpacity(0.14);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+              child: Row(
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: iconBg,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(widget.icon, size: 18, color: titleColor),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.title,
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                color: titleColor,
+                                fontWeight: FontWeight.w700,
+                                height: 1.05,
+                              ),
+                        ),
+                        Text(
+                          widget.subtitle,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: subtitleColor,
+                                height: 1.12,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  AnimatedRotation(
+                    turns: _expanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 180),
+                    child: Icon(Icons.keyboard_arrow_down_rounded, color: subtitleColor, size: 22),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          AnimatedCrossFade(
+            firstChild: const SizedBox.shrink(),
+            secondChild: widget.child,
+            crossFadeState: _expanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+            duration: const Duration(milliseconds: 220),
+            sizeCurve: Curves.easeInOut,
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _Card extends StatelessWidget {
@@ -259,52 +809,47 @@ class _Card extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         decoration: BoxDecoration(
-          color: AppTheme.bgCard,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.divider),
+          color: Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Theme.of(context).dividerColor),
         ),
         child: child,
       );
 }
 
-class _SliderTile extends StatelessWidget {
-  final String label, valueLabel;
-  final double value, min, max;
-  final int divisions;
-  final ValueChanged<double> onChanged;
+class _PickerTile extends StatelessWidget {
+  final String label;
+  final String valueLabel;
+  final VoidCallback onTap;
 
-  const _SliderTile({
+  const _PickerTile({
     required this.label,
     required this.valueLabel,
-    required this.value,
-    required this.min,
-    required this.max,
-    required this.divisions,
-    required this.onChanged,
+    required this.onTap,
   });
 
   @override
-  Widget build(BuildContext context) => Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: AppTheme.bgCard,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.divider),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(label, style: Theme.of(context).textTheme.bodyMedium),
-                Text(valueLabel,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(color: AppTheme.primary)),
-              ],
-            ),
-            Slider(value: value.clamp(min, max), min: min, max: max, divisions: divisions, onChanged: onChanged),
-          ],
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(color: Theme.of(context).dividerColor),
+          ),
+          child: Row(
+            children: [
+              Expanded(child: Text(label, style: Theme.of(context).textTheme.bodyMedium)),
+              Text(
+                valueLabel,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(color: AppTheme.primary),
+              ),
+              const SizedBox(width: 8),
+              Icon(Icons.tune_rounded, size: 18, color: Theme.of(context).textTheme.bodySmall?.color),
+            ],
+          ),
         ),
       );
 }
@@ -325,12 +870,12 @@ class _StepperTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
         decoration: BoxDecoration(
-          color: AppTheme.bgCard,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.divider),
+          color: Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(15),
+          border: Border.all(color: Theme.of(context).dividerColor),
         ),
         child: Row(
           children: [
@@ -344,32 +889,6 @@ class _StepperTile extends StatelessWidget {
                 onPressed: value < max ? onIncrement : null,
                 icon: const Icon(Icons.add_circle_outline, color: AppTheme.primary)),
           ],
-        ),
-      );
-}
-
-class _HourPickerTile extends StatelessWidget {
-  final String label;
-  final int hour;
-  final ValueChanged<int> onChanged;
-
-  const _HourPickerTile({required this.label, required this.hour, required this.onChanged});
-
-  String _fmt(int h) {
-    final display = h > 12 ? h - 12 : (h == 0 ? 12 : h);
-    final period = h >= 12 ? 'PM' : 'AM';
-    return '$display:00 $period';
-  }
-
-  @override
-  Widget build(BuildContext context) => ListTile(
-        title: Text(label, style: Theme.of(context).textTheme.bodyMedium),
-        trailing: DropdownButton<int>(
-          value: hour,
-          dropdownColor: AppTheme.bgCard,
-          underline: const SizedBox(),
-          items: List.generate(24, (i) => DropdownMenuItem(value: i, child: Text(_fmt(i)))),
-          onChanged: (v) => onChanged(v!),
         ),
       );
 }
@@ -412,7 +931,7 @@ class _PinGateDialogState extends State<_PinGateDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        backgroundColor: AppTheme.bgCard,
+      backgroundColor: Theme.of(context).cardColor,
         title: const Text('Enter PIN to access Settings'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -496,7 +1015,7 @@ class _ChangePinDialogState extends State<_ChangePinDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        backgroundColor: AppTheme.bgCard,
+      backgroundColor: Theme.of(context).cardColor,
         title: const Text('Change PIN'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -583,14 +1102,14 @@ class _SecurityQuestionDialogState extends State<_SecurityQuestionDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        backgroundColor: AppTheme.bgCard,
+        backgroundColor: Theme.of(context).cardColor,
         title: const Text('Update Recovery Questions'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             DropdownButtonFormField<int>(
               initialValue: _selectedQ,
-              dropdownColor: AppTheme.bgCard,
+              dropdownColor: Theme.of(context).cardColor,
               decoration: const InputDecoration(labelText: 'Question 1'),
               items: AppConstants.securityQuestions.asMap().entries
                   .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value, style: const TextStyle(fontSize: 12))))
@@ -606,7 +1125,7 @@ class _SecurityQuestionDialogState extends State<_SecurityQuestionDialog> {
             const SizedBox(height: 16),
             DropdownButtonFormField<int>(
               initialValue: _selectedQ2,
-              dropdownColor: AppTheme.bgCard,
+              dropdownColor: Theme.of(context).cardColor,
               decoration: const InputDecoration(labelText: 'Question 2'),
               items: AppConstants.securityQuestions.asMap().entries
                   .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value, style: const TextStyle(fontSize: 12))))

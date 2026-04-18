@@ -5,9 +5,10 @@ import 'package:fl_chart/fl_chart.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/time_utils.dart';
 import '../../core/constants/social_apps.dart';
+import '../../core/widgets/scene_background.dart';
+import '../../data/models/user_settings.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/usage_provider.dart';
-import '../lock/lock_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -33,10 +34,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           settings.monitoredApps,
           settings.dailyLimitMinutes,
         );
-    // Navigate to lock if locked
-    if (mounted && context.read<UsageProvider>().isLocked) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LockScreen()));
-    }
   }
 
   @override
@@ -54,49 +51,182 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          children: [
-            const Text('FocusLock'),
-            Text('Hey, ${settings.userName} 👋',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.textMuted)),
+    return SceneBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('FocusLock'),
+              Text('Good to see you, ${settings.userName}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.textMuted)),
+            ],
+          ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.refresh, size: 20),
+              onPressed: _refresh,
+            ),
           ],
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh, size: 20),
-            onPressed: _refresh,
+        body: RefreshIndicator(
+          onRefresh: _refresh,
+          color: AppTheme.primary,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+            children: [
+              _HeaderCard(usage: usage, settings: settings),
+              const SizedBox(height: 16),
+              _UsageRingCard(usage: usage, settings: settings),
+              const SizedBox(height: 16),
+              _StatsRow(usage: usage, settings: settings),
+              const SizedBox(height: 16),
+              if (usage.todayEntries.isNotEmpty) ...[
+                const _SectionHeader('App Breakdown'),
+                const SizedBox(height: 8),
+                ...usage.todayEntries.map((e) {
+                  final percent = usage.totalMinutesToday > 0 ? e.durationMinutes / usage.totalMinutesToday : 0.0;
+                  final app = SocialApps.fromPackage(e.packageName);
+                  return _AppBar(
+                    icon: app?.icon ?? Icons.apps_rounded,
+                    name: e.appName,
+                    minutes: e.durationMinutes,
+                    percent: percent,
+                  );
+                }),
+              ] else
+                _EmptyApps(),
+              const SizedBox(height: 16),
+              _TipsCard(percent: usage.usagePercent),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HeaderCard extends StatelessWidget {
+  final UsageProvider usage;
+  final UserSettings settings;
+
+  const _HeaderCard({required this.usage, required this.settings});
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = usage.usagePercent.clamp(0.0, 1.0);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surface = Theme.of(context).cardColor;
+    final border = Theme.of(context).dividerColor;
+    final gradient = isDark
+      ? const [Color(0xFF1A1B2A), Color(0xFF202236)]
+      : const [Colors.white, Color(0xFFF9F6FF)];
+    final colour = progress < 0.75
+        ? AppTheme.success
+        : progress < 0.9
+            ? AppTheme.warning
+            : AppTheme.danger;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: gradient,
+        ),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: border),
+        boxShadow: const [
+          BoxShadow(color: AppTheme.shadow, blurRadius: 24, offset: Offset(0, 12)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(Icons.insights_rounded, color: AppTheme.primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Today at a glance', style: Theme.of(context).textTheme.bodySmall),
+                    Text('Focus is holding steady.', style: Theme.of(context).textTheme.titleLarge),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: colour.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text('${(progress * 100).round()}%',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colour, fontWeight: FontWeight.w700)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Text(
+            TimeUtils.formatMinutes(usage.totalMinutesToday),
+            style: Theme.of(context).textTheme.displayLarge?.copyWith(
+                  color: Theme.of(context).textTheme.displayLarge?.color,
+                  letterSpacing: -1.2,
+                ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'used out of ${TimeUtils.formatMinutes(settings.dailyLimitMinutes)} today',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              _MiniMetric(label: 'Remaining', value: TimeUtils.formatMinutes(usage.remainingMinutes)),
+              const SizedBox(width: 12),
+              _MiniMetric(label: 'Apps tracked', value: '${usage.todayEntries.length}'),
+            ],
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _refresh,
-        color: AppTheme.primary,
-        child: ListView(
-          padding: const EdgeInsets.all(20),
+    );
+  }
+}
+
+class _MiniMetric extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _MiniMetric({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final surface = Theme.of(context).cardColor;
+    final border = Theme.of(context).dividerColor;
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _UsageRingCard(usage: usage, settings: settings),
-            const SizedBox(height: 16),
-            _StatsRow(usage: usage),
-            const SizedBox(height: 16),
-            if (usage.todayEntries.isNotEmpty) ...[
-              const _SectionHeader('App Breakdown'),
-              const SizedBox(height: 8),
-              ...usage.todayEntries.map((e) {
-                final percent = usage.totalMinutesToday > 0 ? e.durationMinutes / usage.totalMinutesToday : 0.0;
-                final app = SocialApps.fromPackage(e.packageName);
-                return _AppBar(
-                  emoji: app?.emoji ?? '📱',
-                  name: e.appName,
-                  minutes: e.durationMinutes,
-                  percent: percent,
-                );
-              }),
-            ] else
-              _EmptyApps(),
-            const SizedBox(height: 16),
-            _TipsCard(percent: usage.usagePercent),
+            Text(label, style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 4),
+            Text(value, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 14)),
           ],
         ),
       ),
@@ -106,11 +236,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
 class _UsageRingCard extends StatelessWidget {
   final UsageProvider usage;
-  final settings;
+  final UserSettings settings;
   const _UsageRingCard({required this.usage, required this.settings});
 
   @override
   Widget build(BuildContext context) {
+    final surface = Theme.of(context).cardColor;
+    final border = Theme.of(context).dividerColor;
     final color = usage.usagePercent < 0.75
         ? AppTheme.success
         : usage.usagePercent < 0.90
@@ -120,9 +252,12 @@ class _UsageRingCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: AppTheme.bgCard,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppTheme.divider),
+        color: surface,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: border),
+        boxShadow: const [
+          BoxShadow(color: AppTheme.shadow, blurRadius: 22, offset: Offset(0, 10)),
+        ],
       ),
       child: Column(
         children: [
@@ -193,7 +328,8 @@ class _UsageRingCard extends StatelessWidget {
 
 class _StatsRow extends StatelessWidget {
   final UsageProvider usage;
-  const _StatsRow({required this.usage});
+  final UserSettings settings;
+  const _StatsRow({required this.usage, required this.settings});
 
   @override
   Widget build(BuildContext context) {
@@ -204,7 +340,7 @@ class _StatsRow extends StatelessWidget {
         return Row(
           children: [
             _StatCard(
-              emoji: '📲',
+              icon: Icons.smartphone_rounded,
               label: 'Phone Pickups',
               value: '$pickups',
               color: AppTheme.primary,
@@ -212,12 +348,16 @@ class _StatsRow extends StatelessWidget {
             const SizedBox(width: 12),
             FutureBuilder<int>(
               future: usage.getTodayUnlockCount(),
-              builder: (ctx2, snap2) => _StatCard(
-                emoji: '🔓',
-                label: 'Unlocks Used',
-                value: snap2.data?.toString() ?? '0',
-                color: AppTheme.accent,
-              ),
+              builder: (ctx2, snap2) {
+                final used = snap2.data ?? 0;
+                final left = (settings.maxUnlocksPerDay - used).clamp(0, settings.maxUnlocksPerDay);
+                return _StatCard(
+                  icon: Icons.lock_open_rounded,
+                  label: 'Unlocks Left',
+                  value: '$left',
+                  color: left > 0 ? AppTheme.accent : AppTheme.danger,
+                );
+              },
             ),
           ],
         );
@@ -227,24 +367,27 @@ class _StatsRow extends StatelessWidget {
 }
 
 class _StatCard extends StatelessWidget {
-  final String emoji, label, value;
+  final IconData icon;
+  final String label, value;
   final Color color;
-  const _StatCard({required this.emoji, required this.label, required this.value, required this.color});
+  const _StatCard({required this.icon, required this.label, required this.value, required this.color});
 
   @override
   Widget build(BuildContext context) {
+    final surface = Theme.of(context).cardColor;
+    final border = Theme.of(context).dividerColor;
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: AppTheme.bgCard,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.divider),
+          color: surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(emoji, style: const TextStyle(fontSize: 22)),
+            Icon(icon, size: 22, color: color),
             const SizedBox(height: 8),
             Text(value, style: Theme.of(context).textTheme.displayMedium?.copyWith(color: color, fontSize: 24)),
             Text(label, style: Theme.of(context).textTheme.bodySmall),
@@ -266,25 +409,40 @@ class _SectionHeader extends StatelessWidget {
 }
 
 class _AppBar extends StatelessWidget {
-  final String emoji, name;
+  final IconData icon;
+  final String name;
   final int minutes;
   final double percent;
 
-  const _AppBar({required this.emoji, required this.name, required this.minutes, required this.percent});
+  const _AppBar({required this.icon, required this.name, required this.minutes, required this.percent});
 
   @override
   Widget build(BuildContext context) {
+    final surface = Theme.of(context).cardColor;
+    final border = Theme.of(context).dividerColor;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: AppTheme.bgCard,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.divider),
+        color: surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: border),
+        boxShadow: const [
+          BoxShadow(color: AppTheme.shadow, blurRadius: 12, offset: Offset(0, 6)),
+        ],
       ),
       child: Row(
         children: [
-          Text(emoji, style: const TextStyle(fontSize: 20)),
+          Container(
+            width: 34,
+            height: 34,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: AppTheme.primary.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(icon, color: AppTheme.primary, size: 16),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -320,16 +478,21 @@ class _AppBar extends StatelessWidget {
 class _EmptyApps extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final surface = Theme.of(context).cardColor;
+    final border = Theme.of(context).dividerColor;
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: AppTheme.bgCard,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.divider),
+        color: surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: border),
+        boxShadow: const [
+          BoxShadow(color: AppTheme.shadow, blurRadius: 18, offset: Offset(0, 8)),
+        ],
       ),
       child: Column(
         children: [
-          const Text('📭', style: TextStyle(fontSize: 40)),
+          const Icon(Icons.inbox_outlined, size: 40, color: AppTheme.textMuted),
           const SizedBox(height: 8),
           Text('No usage data yet today.', style: Theme.of(context).textTheme.bodyMedium),
           Text('Open your social apps and come back!',
@@ -346,24 +509,29 @@ class _TipsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final surface = Theme.of(context).cardColor;
+    final border = Theme.of(context).dividerColor;
     final tip = percent < 0.5
-        ? ('💪', 'Great job! You\'re well within your limit.')
-        : percent < 0.75
-            ? ('👀', 'Over halfway there. Pace yourself!')
-            : percent < 0.90
-                ? ('⚠️', 'Getting close to your limit. Wrap up soon.')
-                : ('🚨', 'Almost at your limit! Time to put the phone down.');
+      ? (Icons.check_circle_outline, 'Great job! You\'re well within your limit.')
+      : percent < 0.75
+        ? (Icons.visibility_outlined, 'Over halfway there. Pace yourself!')
+        : percent < 0.90
+          ? (Icons.warning_amber_rounded, 'Getting close to your limit. Wrap up soon.')
+          : (Icons.dangerous_outlined, 'Almost at your limit! Time to put the phone down.');
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppTheme.bgCard,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.divider),
+        color: surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: border),
+        boxShadow: const [
+          BoxShadow(color: AppTheme.shadow, blurRadius: 14, offset: Offset(0, 8)),
+        ],
       ),
       child: Row(
         children: [
-          Text(tip.$1, style: const TextStyle(fontSize: 28)),
+          Icon(tip.$1, size: 28, color: AppTheme.primary),
           const SizedBox(width: 12),
           Expanded(
             child: Text(tip.$2, style: Theme.of(context).textTheme.bodyMedium),
