@@ -2,19 +2,26 @@ import 'package:flutter/material.dart';
 
 class FocusLockMark extends StatelessWidget {
   final double size;
+  final bool? dark;
 
-  const FocusLockMark({super.key, required this.size});
+  const FocusLockMark({super.key, required this.size, this.dark});
 
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
       size: Size.square(size),
-      painter: _FocusLockMarkPainter(),
+      painter: _FocusLockMarkPainter(
+        dark: dark ?? Theme.of(context).brightness == Brightness.dark,
+      ),
     );
   }
 }
 
 class _FocusLockMarkPainter extends CustomPainter {
+  final bool dark;
+
+  _FocusLockMarkPainter({required this.dark});
+
   @override
   void paint(Canvas canvas, Size size) {
     final r = size.width * 0.3;
@@ -24,10 +31,12 @@ class _FocusLockMarkPainter extends CustomPainter {
     );
 
     final bgPaint = Paint()
-      ..shader = const LinearGradient(
+      ..shader = LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
-        colors: [Color(0xFF9CCFB0), Color(0xFF355B57)],
+        colors: dark
+            ? const [Color(0xFF141A2A), Color(0xFF202D47)]
+            : const [Color(0xFF7D87C9), Color(0xFF343F73)],
       ).createShader(Offset.zero & size);
     canvas.drawRRect(outer, bgPaint);
 
@@ -41,7 +50,7 @@ class _FocusLockMarkPainter extends CustomPainter {
       lockBodyRect,
       Radius.circular(size.width * 0.12),
     );
-    final lockBodyPaint = Paint()..color = Colors.white.withOpacity(0.96);
+    final lockBodyPaint = Paint()..color = dark ? const Color(0xFFE9EDF7) : Colors.white.withOpacity(0.97);
     canvas.drawRRect(lockBody, lockBodyPaint);
 
     final shackleRect = Rect.fromLTWH(
@@ -51,7 +60,7 @@ class _FocusLockMarkPainter extends CustomPainter {
       size.height * 0.36,
     );
     final shacklePaint = Paint()
-      ..color = Colors.white.withOpacity(0.95)
+      ..color = dark ? const Color(0xFFB8C4E0) : Colors.white.withOpacity(0.95)
       ..style = PaintingStyle.stroke
       ..strokeWidth = size.width * 0.085
       ..strokeCap = StrokeCap.round;
@@ -61,7 +70,7 @@ class _FocusLockMarkPainter extends CustomPainter {
       text: TextSpan(
         text: 'F',
         style: TextStyle(
-          color: const Color(0xFF35615A),
+          color: dark ? const Color(0xFF8EA6FF) : const Color(0xFF4A4F82),
           fontSize: size.width * 0.34,
           fontWeight: FontWeight.w900,
         ),

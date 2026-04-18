@@ -43,6 +43,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   String? _pinError;
   bool _isSaving = false;
 
+  void _dismissKeyboard() {
+    FocusScope.of(context).unfocus();
+  }
+
   @override
   void dispose() {
     _pageController.dispose();
@@ -55,6 +59,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   void _next() {
+    _dismissKeyboard();
     if (!_validateCurrentPage()) return;
     if (_currentPage < _totalPages - 1) {
       _pageController.nextPage(duration: const Duration(milliseconds: 350), curve: Curves.easeInOut);
@@ -151,30 +156,44 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
+
     return SceneBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
+        resizeToAvoidBottomInset: true,
         body: SafeArea(
-          child: Column(
-            children: [
-              _buildProgressBar(),
-              Expanded(
-                child: PageView(
-                  controller: _pageController,
-                  physics: const NeverScrollableScrollPhysics(),
-                  onPageChanged: (i) => setState(() => _currentPage = i),
-                  children: [
-                    _buildWelcomePage(),
-                    _buildProfilePage(),
-                    _buildAppsPage(),
-                    _buildLimitsPage(),
-                    _buildSecurityPage(),
-                    _buildDonePage(),
-                  ],
+          child: GestureDetector(
+            onTap: _dismissKeyboard,
+            child: Column(
+              children: [
+                _buildProgressBar(),
+                Expanded(
+                  child: PageView(
+                    controller: _pageController,
+                    physics: const NeverScrollableScrollPhysics(),
+                    onPageChanged: (i) {
+                      _dismissKeyboard();
+                      setState(() => _currentPage = i);
+                    },
+                    children: [
+                      _buildWelcomePage(),
+                      _buildProfilePage(),
+                      _buildAppsPage(),
+                      _buildLimitsPage(),
+                      _buildSecurityPage(),
+                      _buildDonePage(),
+                    ],
+                  ),
                 ),
-              ),
-              _buildBottomBar(),
-            ],
+                AnimatedPadding(
+                  duration: const Duration(milliseconds: 160),
+                  curve: Curves.easeOut,
+                  padding: EdgeInsets.only(bottom: keyboardInset > 0 ? 8 : 0),
+                  child: _buildBottomBar(),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -233,8 +252,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             Expanded(
               flex: 1,
               child: TextButton(
-                onPressed: () => _pageController.previousPage(
-                    duration: const Duration(milliseconds: 300), curve: Curves.easeInOut),
+                onPressed: () {
+                  _dismissKeyboard();
+                  _pageController.previousPage(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                  );
+                },
                 style: TextButton.styleFrom(
                   backgroundColor: Colors.white.withOpacity(0.72),
                   padding: const EdgeInsets.symmetric(vertical: 16),
@@ -327,44 +351,79 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _pageTitle('Tell us about you'),
-          const SizedBox(height: 8),
-          Text('This helps personalise your experience.',
-              style: Theme.of(context).textTheme.bodyMedium),
-          const SizedBox(height: 32),
-          TextField(
-            controller: _nameController,
-            decoration: const InputDecoration(labelText: 'Your name', prefixText: '  '),
-            textCapitalization: TextCapitalization.words,
-          ),
-          const SizedBox(height: 32),
-          Text('What time do you usually wake up?',
-              style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 12),
-          _timePickerCard(
-            label: 'Wake up',
-            hour: _wakeHour,
-            onTap: () => _pickHour(
-              initialHour: _wakeHour,
-              onPicked: (h) => setState(() => _wakeHour = h),
+          Center(
+            child: Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: AppTheme.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AppTheme.primary.withOpacity(0.2)),
+              ),
+              child: const Icon(Icons.person_rounded, size: 32, color: AppTheme.primary),
             ),
           ),
-          const SizedBox(height: 24),
-          Text('What time do you usually sleep?',
-              style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 12),
-          _timePickerCard(
-            label: 'Sleep',
-            hour: _sleepHour,
-            onTap: () => _pickHour(
-              initialHour: _sleepHour,
-              onPicked: (h) => setState(() => _sleepHour = h),
+          const SizedBox(height: 14),
+          Center(
+            child: Text(
+              'Tell us about you',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.displayMedium?.copyWith(color: AppTheme.primary),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 6),
           Text(
-            'We will set a wake-up alarm and a sleep reminder at these times.',
-            style: Theme.of(context).textTheme.bodySmall,
+            'Just like your setup summary, this page defines your personal profile and daily rhythm.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 16),
+          _setupCard(
+            icon: Icons.person_outline_rounded,
+            title: 'Profile',
+            subtitle: 'How FocusLock should address you',
+            child: TextField(
+              controller: _nameController,
+              decoration: const InputDecoration(labelText: 'Your name', prefixText: '  '),
+              textCapitalization: TextCapitalization.words,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _setupCard(
+            icon: Icons.wb_sunny_outlined,
+            title: 'Daily Rhythm',
+            subtitle: 'We use this for wake and sleep reminders',
+            child: Column(
+              children: [
+                _timePickerCard(
+                  label: 'Wake up',
+                  hour: _wakeHour,
+                  onTap: () => _pickHour(
+                    initialHour: _wakeHour,
+                    onPicked: (h) => setState(() => _wakeHour = h),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _timePickerCard(
+                  label: 'Sleep',
+                  hour: _sleepHour,
+                  onTap: () => _pickHour(
+                    initialHour: _sleepHour,
+                    onPicked: (h) => setState(() => _sleepHour = h),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'We will set a wake-up alarm and a sleep reminder at these times.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          _setupHeaderStrip(
+            icon: Icons.check_circle_outline,
+            text: 'Name + rhythm complete this stage',
           ),
         ],
       ),
@@ -595,14 +654,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Widget _buildAppsPage() {
     return _PageWrapper(
+      scrollable: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-            _pageTitle('Which apps should we monitor?'),
+          _pageTitle('Which apps should we monitor?'),
           const SizedBox(height: 8),
-          Text('Select all your social media apps.',
+          Text('Pick the apps that should count toward your daily limit.',
               style: Theme.of(context).textTheme.bodyMedium),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+          _setupHeaderStrip(
+            icon: Icons.apps_rounded,
+            text: '${_selectedApps.length} app(s) selected',
+          ),
+          const SizedBox(height: 12),
           Expanded(
             child: ListView.separated(
               itemCount: SocialApps.all.length,
@@ -624,12 +689,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               },
             ),
           ),
-          if (_selectedApps.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text('${_selectedApps.length} app(s) selected',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.success)),
-            ),
         ],
       ),
     );
@@ -637,22 +696,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Widget _buildLimitsPage() {
     return _PageWrapper(
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _pageTitle('Set your limits'),
-            const SizedBox(height: 8),
-            Text('These can be changed anytime in Settings.',
-                style: Theme.of(context).textTheme.bodyMedium),
-            const SizedBox(height: 32),
-            _sectionLabel('Daily limit'),
-            Text(
-              'Total time allowed on monitored apps each day before FocusLock blocks them.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 6),
-            _minutesPickerCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _pageTitle('Set your limits'),
+          const SizedBox(height: 8),
+          Text('These can be changed anytime in Settings.',
+              style: Theme.of(context).textTheme.bodyMedium),
+          const SizedBox(height: 16),
+          _setupCard(
+            icon: Icons.timer_outlined,
+            title: 'Daily limit',
+            subtitle: 'Time allowed on monitored apps each day',
+            child: _minutesPickerCard(
               label: 'Daily limit',
               valueLabel: _formatDurationLong(_dailyLimitMinutes),
               onTap: () => _pickMinutes(
@@ -663,49 +719,46 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 onPicked: (v) => setState(() => _dailyLimitMinutes = v),
               ),
             ),
-            const SizedBox(height: 16),
-            _sectionLabel('Cooldown before unlock'),
-            Text(
-              'How long you must wait after hitting your limit before you can unlock again.',
-              style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 12),
+          _setupCard(
+            icon: Icons.lock_clock_outlined,
+            title: 'Unlock behavior',
+            subtitle: 'How cooldown and bonus minutes should work',
+            child: Column(
+              children: [
+                _minutesPickerCard(
+                  label: 'Cooldown',
+                  valueLabel: _formatDurationLong(_cooldownMinutes),
+                  onTap: () => _pickMinutes(
+                    title: 'Set cooldown',
+                    initialValue: _cooldownMinutes,
+                    min: 5,
+                    max: 120,
+                    onPicked: (v) => setState(() => _cooldownMinutes = v),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _minutesPickerCard(
+                  label: 'Extra unlock time',
+                  valueLabel: _formatDurationLong(_extraUnlockMinutes),
+                  onTap: () => _pickMinutes(
+                    title: 'Set extra unlock time',
+                    initialValue: _extraUnlockMinutes,
+                    min: 5,
+                    max: 60,
+                    onPicked: (v) => setState(() => _extraUnlockMinutes = v),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 6),
-            _minutesPickerCard(
-              label: 'Cooldown',
-              valueLabel: _formatDurationLong(_cooldownMinutes),
-              onTap: () => _pickMinutes(
-                title: 'Set cooldown',
-                initialValue: _cooldownMinutes,
-                min: 5,
-                max: 120,
-                onPicked: (v) => setState(() => _cooldownMinutes = v),
-              ),
-            ),
-            const SizedBox(height: 16),
-            _sectionLabel('Extra time per unlock'),
-            Text(
-              'Extra usage time granted each time you successfully unlock.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 6),
-            _minutesPickerCard(
-              label: 'Extra unlock time',
-              valueLabel: _formatDurationLong(_extraUnlockMinutes),
-              onTap: () => _pickMinutes(
-                title: 'Set extra unlock time',
-                initialValue: _extraUnlockMinutes,
-                min: 5,
-                max: 60,
-                onPicked: (v) => setState(() => _extraUnlockMinutes = v),
-              ),
-            ),
-            const SizedBox(height: 16),
-            _sectionLabel('Max unlocks per day'),
-            Text(
-              'Maximum number of unlock attempts allowed in a single day.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            Row(
+          ),
+          const SizedBox(height: 12),
+          _setupCard(
+            icon: Icons.shield_outlined,
+            title: 'Max unlocks per day',
+            subtitle: 'Maximum unlock attempts allowed each day',
+            child: Row(
               children: [
                 IconButton(
                     onPressed: _maxUnlocks > 1 ? () => setState(() => _maxUnlocks--) : null,
@@ -717,105 +770,109 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     icon: const Icon(Icons.add_circle_outline)),
               ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildSecurityPage() {
     return _PageWrapper(
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _pageTitle('Set your PIN'),
-            const SizedBox(height: 8),
-            Text('Used to access Settings. If you forget it, your security questions will help you recover it.',
-                style: Theme.of(context).textTheme.bodyMedium),
-            const SizedBox(height: 32),
-            TextField(
-              controller: _pinController,
-              obscureText: !_pinVisible,
-              keyboardType: TextInputType.number,
-              maxLength: AppConstants.pinLength,
-              decoration: InputDecoration(
-                labelText: 'Create PIN (${AppConstants.pinLength} digits)',
-                errorText: _pinError,
-                suffixIcon: IconButton(
-                  icon: Icon(_pinVisible ? Icons.visibility_off : Icons.visibility),
-                  onPressed: () => setState(() => _pinVisible = !_pinVisible),
-                ),
-              ),
-              onChanged: (_) => setState(() => _pinError = null),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _pinConfirmController,
-              obscureText: !_pinVisible,
-              keyboardType: TextInputType.number,
-              maxLength: AppConstants.pinLength,
-              decoration: InputDecoration(labelText: 'Confirm PIN (${AppConstants.pinLength} digits)'),
-            ),
-            const SizedBox(height: 24),
-            _sectionLabel('Security question 1 (for PIN recovery)'),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<int>(
-              initialValue: _selectedQuestion,
-              dropdownColor: AppTheme.bgCard,
-              decoration: const InputDecoration(labelText: 'Choose question 1'),
-              items: AppConstants.securityQuestions.asMap().entries.map((e) {
-                return DropdownMenuItem(value: e.key, child: Text(e.value, style: const TextStyle(fontSize: 13)));
-              }).toList(),
-              onChanged: (v) => setState(() => _selectedQuestion = v!),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _answerController,
-              decoration: const InputDecoration(labelText: 'Answer 1'),
-              textCapitalization: TextCapitalization.none,
-            ),
-            const SizedBox(height: 20),
-            _sectionLabel('Second security question (for PIN recovery)'),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<int>(
-              initialValue: _selectedQuestion2,
-              dropdownColor: AppTheme.bgCard,
-              decoration: const InputDecoration(labelText: 'Choose a second question'),
-              items: AppConstants.securityQuestions.asMap().entries.map((e) {
-                return DropdownMenuItem(value: e.key, child: Text(e.value, style: const TextStyle(fontSize: 13)));
-              }).toList(),
-              onChanged: (v) => setState(() => _selectedQuestion2 = v!),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _answerController2,
-              decoration: const InputDecoration(labelText: 'Second answer'),
-              textCapitalization: TextCapitalization.none,
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppTheme.warning.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppTheme.warning.withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline, color: AppTheme.warning, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Remember both answers exactly — they are case-insensitive but spelling matters.',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.warning),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _pageTitle('Set your PIN'),
+          const SizedBox(height: 8),
+          Text('This protects settings and unlock controls.',
+              style: Theme.of(context).textTheme.bodyMedium),
+          const SizedBox(height: 16),
+          _setupCard(
+            icon: Icons.pin_outlined,
+            title: 'PIN setup',
+            subtitle: 'Create a ${AppConstants.pinLength}-digit PIN for settings access',
+            child: Column(
+              children: [
+                TextField(
+                  controller: _pinController,
+                  obscureText: !_pinVisible,
+                  keyboardType: TextInputType.number,
+                  maxLength: AppConstants.pinLength,
+                  decoration: InputDecoration(
+                    labelText: 'Create PIN (${AppConstants.pinLength} digits)',
+                    errorText: _pinError,
+                    suffixIcon: IconButton(
+                      icon: Icon(_pinVisible ? Icons.visibility_off : Icons.visibility),
+                      onPressed: () => setState(() => _pinVisible = !_pinVisible),
                     ),
                   ),
-                ],
-              ),
+                  onChanged: (_) => setState(() => _pinError = null),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _pinConfirmController,
+                  obscureText: !_pinVisible,
+                  keyboardType: TextInputType.number,
+                  maxLength: AppConstants.pinLength,
+                  decoration: InputDecoration(labelText: 'Confirm PIN (${AppConstants.pinLength} digits)'),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 12),
+          _setupCard(
+            icon: Icons.help_outline_rounded,
+            title: 'Recovery questions',
+            subtitle: 'Used if you forget your PIN',
+            child: Column(
+              children: [
+                _questionDropdown(
+                  value: _selectedQuestion,
+                  label: 'Choose question 1',
+                  onChanged: (v) => setState(() => _selectedQuestion = v),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _answerController,
+                  decoration: const InputDecoration(labelText: 'Answer 1'),
+                  textCapitalization: TextCapitalization.none,
+                ),
+                const SizedBox(height: 12),
+                _questionDropdown(
+                  value: _selectedQuestion2,
+                  label: 'Choose a second question',
+                  onChanged: (v) => setState(() => _selectedQuestion2 = v),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _answerController2,
+                  decoration: const InputDecoration(labelText: 'Second answer'),
+                  textCapitalization: TextCapitalization.none,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.warning.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppTheme.warning.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.info_outline, color: AppTheme.warning, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Remember both answers exactly — they are case-insensitive but spelling matters.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.warning),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -826,20 +883,29 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           const Icon(Icons.verified_rounded, size: 80, color: AppTheme.primary),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
           Text("You're all set!",
               style: Theme.of(context).textTheme.displayMedium?.copyWith(color: AppTheme.primary)),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Text(
-            'FocusLock will now monitor your social media usage and lock apps when you hit your limit.\n\nYou\'re set.',
+            'FocusLock will now monitor your social media usage and lock apps when you hit your limit.',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: AppTheme.textSecondary),
           ),
-          const SizedBox(height: 32),
-          _summaryChip('Daily limit: ${_dailyLimitMinutes ~/ 60}h ${_dailyLimitMinutes % 60}m'),
-          _summaryChip('Cooldown: $_cooldownMinutes min'),
-          _summaryChip('Monitoring: ${_selectedApps.length} apps'),
-          _summaryChip('Max unlocks: $_maxUnlocks/day'),
+          const SizedBox(height: 18),
+          _setupCard(
+            icon: Icons.analytics_outlined,
+            title: 'Your setup summary',
+            subtitle: 'You can edit all of this in Settings anytime',
+            child: Column(
+              children: [
+                _summaryChip('Daily limit: ${_dailyLimitMinutes ~/ 60}h ${_dailyLimitMinutes % 60}m'),
+                _summaryChip('Cooldown: $_cooldownMinutes min'),
+                _summaryChip('Monitoring: ${_selectedApps.length} apps'),
+                _summaryChip('Max unlocks: $_maxUnlocks/day'),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -849,18 +915,136 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.9),
-            borderRadius: BorderRadius.circular(18),
+            color: Theme.of(context).cardColor,
+            borderRadius: BorderRadius.circular(14),
             border: Border.all(color: AppTheme.primary.withOpacity(0.3)),
             boxShadow: const [
-              BoxShadow(color: AppTheme.shadow, blurRadius: 10, offset: Offset(0, 4)),
+              BoxShadow(color: AppTheme.shadow, blurRadius: 8, offset: Offset(0, 3)),
             ],
           ),
           child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
         ),
       );
+
+  Widget _setupCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Widget child,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Theme.of(context).dividerColor),
+        boxShadow: const [
+          BoxShadow(color: AppTheme.shadow, blurRadius: 14, offset: Offset(0, 6)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, size: 18, color: AppTheme.primary),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: Theme.of(context).textTheme.titleMedium),
+                    Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _setupHeaderStrip({required IconData icon, required String text}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppTheme.primary.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.primary.withOpacity(0.18)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: AppTheme.primary),
+          const SizedBox(width: 8),
+          Text(
+            text,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppTheme.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _questionDropdown({
+    required int value,
+    required String label,
+    required ValueChanged<int> onChanged,
+  }) {
+    return DropdownButtonFormField<int>(
+      isExpanded: true,
+      initialValue: value,
+      dropdownColor: AppTheme.bgCard,
+      decoration: InputDecoration(
+        labelText: label,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      ),
+      items: AppConstants.securityQuestions.asMap().entries.map((e) {
+        return DropdownMenuItem(
+          value: e.key,
+          child: Text(
+            e.value,
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
+            style: const TextStyle(fontSize: 13),
+          ),
+        );
+      }).toList(),
+      selectedItemBuilder: (context) {
+        return AppConstants.securityQuestions.map((q) {
+          return Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              q,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+              style: const TextStyle(fontSize: 13),
+            ),
+          );
+        }).toList();
+      },
+      onChanged: (v) {
+        if (v != null) onChanged(v);
+      },
+    );
+  }
 
   Widget _pageTitle(String text) => Text(text, style: Theme.of(context).textTheme.displayMedium);
   Widget _sectionLabel(String t) => Padding(
@@ -873,7 +1057,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
 class _PageWrapper extends StatelessWidget {
   final Widget child;
-  const _PageWrapper({required this.child});
+  final bool scrollable;
+  const _PageWrapper({required this.child, this.scrollable = true});
 
   @override
   Widget build(BuildContext context) {
@@ -889,7 +1074,18 @@ class _PageWrapper extends StatelessWidget {
             BoxShadow(color: AppTheme.shadow, blurRadius: 24, offset: Offset(0, 12)),
           ],
         ),
-        child: child,
+        child: scrollable
+            ? LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                      child: child,
+                    ),
+                  );
+                },
+              )
+            : child,
       ),
     );
   }

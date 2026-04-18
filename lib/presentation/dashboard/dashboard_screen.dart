@@ -331,6 +331,48 @@ class _StatsRow extends StatelessWidget {
   final UserSettings settings;
   const _StatsRow({required this.usage, required this.settings});
 
+  Future<void> _onUseUnlockTap(BuildContext context, int unlocksLeft) async {
+    if (unlocksLeft <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No unlocks left for today.')),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Theme.of(ctx).cardColor,
+        title: const Text('Use Unlock Now?'),
+        content: Text(
+          'This will use 1 unlock and add ${settings.extraUnlockMinutes} minutes right now.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Yes'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    await usage.unlock();
+    await usage.refresh(settings.monitoredApps, settings.dailyLimitMinutes);
+
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Unlock used. +${settings.extraUnlockMinutes} minutes added.'),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<int>(
@@ -356,6 +398,8 @@ class _StatsRow extends StatelessWidget {
                   label: 'Unlocks Left',
                   value: '$left',
                   color: left > 0 ? AppTheme.accent : AppTheme.danger,
+                  actionLabel: 'Use unlock',
+                  onActionTap: () => _onUseUnlockTap(context, left),
                 );
               },
             ),
@@ -370,7 +414,17 @@ class _StatCard extends StatelessWidget {
   final IconData icon;
   final String label, value;
   final Color color;
-  const _StatCard({required this.icon, required this.label, required this.value, required this.color});
+  final String? actionLabel;
+  final VoidCallback? onActionTap;
+
+  const _StatCard({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+    this.actionLabel,
+    this.onActionTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -391,6 +445,29 @@ class _StatCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(value, style: Theme.of(context).textTheme.displayMedium?.copyWith(color: color, fontSize: 24)),
             Text(label, style: Theme.of(context).textTheme.bodySmall),
+            if (actionLabel != null && onActionTap != null) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 28,
+                child: OutlinedButton(
+                  onPressed: onActionTap,
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: color.withOpacity(0.4)),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: const VisualDensity(horizontal: -1, vertical: -2),
+                  ),
+                  child: Text(
+                    actionLabel!,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: color,
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
