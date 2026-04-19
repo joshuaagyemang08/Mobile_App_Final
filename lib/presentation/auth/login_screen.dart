@@ -5,6 +5,7 @@ import '../../core/widgets/focuslock_brand.dart';
 import '../../core/widgets/scene_background.dart';
 import '../../data/services/auth_service.dart';
 import '../../data/services/settings_service.dart';
+import 'verify_email_otp_screen.dart';
 
 enum AuthTab { login, register }
 
@@ -65,37 +66,54 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
 
-    bool ok;
+    bool ok = false;
+    String? emailForOtp = _emailCtrl.text.trim().toLowerCase();
     if (_tab == AuthTab.login) {
-      final hasAccount = await _auth.hasAccount();
-      if (!hasAccount) {
+      final result = await _auth.login(
+        email: _emailCtrl.text,
+        password: _passwordCtrl.text,
+      );
+
+      if (!mounted) return;
+      setState(() => _loading = false);
+
+      if (result.requiresOtp) {
         if (!mounted) return;
-        setState(() {
-          _loading = false;
-          _error = 'No account exists yet. Create one in Register.';
-          _tab = AuthTab.register;
-        });
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => VerifyEmailOtpScreen(email: emailForOtp),
+          ),
+        );
         return;
       }
 
-      ok = await _auth.login(
-        email: _emailCtrl.text,
-        password: _passwordCtrl.text,
-      );
+      ok = result.success;
+
+      if (!ok) {
+        setState(() => _error = result.message.isNotEmpty ? result.message : 'Wrong credentials. Check email/password.');
+        return;
+      }
     } else {
-      await _auth.signUp(
+      final result = await _auth.register(
         email: _emailCtrl.text,
         password: _passwordCtrl.text,
       );
-      ok = true;
-    }
 
-    if (!mounted) return;
+      if (!mounted) return;
+      setState(() => _loading = false);
 
-    setState(() => _loading = false);
+      if (!result.success) {
+        setState(() => _error = result.message.isNotEmpty ? result.message : 'Could not create account.');
+        return;
+      }
 
-    if (!ok) {
-      setState(() => _error = 'Wrong credentials. Check email/password.');
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => VerifyEmailOtpScreen(email: emailForOtp, autoSend: false),
+        ),
+      );
       return;
     }
 

@@ -1,52 +1,128 @@
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../models/auth_result.dart';
+import 'backend_api.dart';
 
 class AuthService {
   static final AuthService _instance = AuthService._internal();
   factory AuthService() => _instance;
   AuthService._internal();
 
+  final _secure = const FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+  );
+
   Future<bool> isLoggedIn() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(AppConstants.keyIsLoggedIn) ?? false;
+    final token = await _secure.read(key: AppConstants.backendTokenKey);
+    return token != null && token.isNotEmpty;
   }
 
-  Future<String?> getUserEmail() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(AppConstants.keyUserEmail);
+  Future<String?> getUserEmail() => _secure.read(key: AppConstants.backendEmailKey);
+
+  Future<String?> getToken() => _secure.read(key: AppConstants.backendTokenKey);
+
+  Future<AuthResult> register({
+    required String email,
+    required String password,
+    String displayName = '',
+  }) async {
+    final response = await BackendApi.postJson('/api/auth_register.php', {
+      'email': email,
+      'password': password,
+      'displayName': displayName,
+    });
+
+    return AuthResult.fromJson(response);
   }
 
-  Future<bool> hasAccount() async {
-    final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString(AppConstants.keyUserEmail);
-    final password = prefs.getString(AppConstants.keyUserPassword);
-    return email != null && email.isNotEmpty && password != null && password.isNotEmpty;
+  Future<AuthResult> login({required String email, required String password}) async {
+    final response = await BackendApi.postJson('/api/auth_login.php', {
+      'email': email,
+      'password': password,
+    });
+
+    final result = AuthResult.fromJson(response);
+    if (result.success && result.token != null) {
+      await _storeSession(
+        token: result.token!,
+        email: result.email ?? email.trim().toLowerCase(),
+        displayName: result.settings?.userName,
+      );
+    }
+    return result;
   }
 
-  Future<void> signUp({required String email, required String password}) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(AppConstants.keyUserEmail, email.trim().toLowerCase());
-    await prefs.setString(AppConstants.keyUserPassword, password);
-    await prefs.setBool(AppConstants.keyIsLoggedIn, true);
+  Future<AuthResult> verifyOtp({
+    required String email,
+    required String code,
+    required String purpose,
+  }) async {
+    final response = await BackendApi.postJson('/api/verify_otp.php', {
+      'email': email,
+      'code': code,
+      'purpose': purpose,
+    });
+
+    final result = AuthResult.fromJson(response);
+    if (result.success && result.token != null) {
+      await _storeSession(
+        token: result.token!,
+        email: result.email ?? email.trim().toLowerCase(),
+        displayName: result.settings?.userName,
+      );
+    }
+    return result;
   }
 
-  Future<bool> login({required String email, required String password}) async {
-    final prefs = await SharedPreferences.getInstance();
-    final savedEmail = prefs.getString(AppConstants.keyUserEmail);
-    final savedPassword = prefs.getString(AppConstants.keyUserPassword);
-    final ok =
-        savedEmail == email.trim().toLowerCase() && savedPassword == password;
+  Future<AuthResult> requestVerificationOtp({required String email}) async {
+    final response = await BackendApi.postJson('/api/request_verification_otp.php', {
+      'email': email,
+    });
+    return AuthResult.fromJson(response);
+  }
 
-    if (ok) {
-      await prefs.setBool(AppConstants.keyIsLoggedIn, true);
+  Future<AuthResult> requestPinResetOtp() async {
+    final token = await getToken();
+    if (token == null || token.isEmpty) {
+      return const AuthResult(success: false, message: 'You must be signed in to request a PIN reset code.');
     }
 
-    return ok;
+    final response = await BackendApi.postJson(
+      '/api/request_pin_reset_otp.php',
+      const {},
+      token: token,
+    );
+    return AuthResult.fromJson(response);
   }
 
   Future<void> logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(AppConstants.keyIsLoggedIn, false);
+    final token = await getToken();
+    if (token != null && token.isNotEmpty) {
+      try {
+        await BackendApi.postJson('/api/logout.php', const {}, token: token);
+      } catch (_) {
+        // Ignore network errors during sign out; the local session is still cleared.
+      }
+    }
+    await _clearSession();
+  }
+
+  Future<void> _storeSession({
+    required String token,
+    required String email,
+    String? displayName,
+  }) async {
+    await _secure.write(key: AppConstants.backendTokenKey, value: token);
+    await _secure.write(key: AppConstants.backendEmailKey, value: email);
+    if (displayName != null && displayName.trim().isNotEmpty) {
+      await _secure.write(key: AppConstants.backendDisplayNameKey, value: displayName.trim());
+    }
+  }
+
+  Future<void> _clearSession() async {
+    await _secure.delete(key: AppConstants.backendTokenKey);
+    await _secure.delete(key: AppConstants.backendEmailKey);
+    await _secure.delete(key: AppConstants.backendDisplayNameKey);
   }
 }

@@ -1,10 +1,13 @@
 import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:math';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import '../models/user_settings.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/time_utils.dart';
-import 'dart:math';
+import '../models/user_settings.dart';
+import 'backend_api.dart';
 
 class SettingsService {
   static final SettingsService _instance = SettingsService._internal();
@@ -14,6 +17,8 @@ class SettingsService {
   final _secure = const FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
+
+  Future<String?> _token() => _secure.read(key: AppConstants.backendTokenKey);
 
   // ── ONBOARDING ──────────────────────────────────────────
 
@@ -30,6 +35,61 @@ class SettingsService {
   // ── SETTINGS LOAD / SAVE ────────────────────────────────
 
   Future<UserSettings> loadSettings() async {
+    final remote = await _loadRemoteSettings();
+    if (remote != null) {
+      await _cacheSettings(remote);
+      return remote;
+    }
+
+    return _loadCachedSettings();
+  }
+
+  Future<void> saveSettings(UserSettings s) async {
+    await _cacheSettings(s);
+
+    final token = await _token();
+    if (token != null && token.isNotEmpty) {
+      try {
+        await BackendApi.postJson(
+          '/api/settings_save.php',
+          s.toJson(),
+          token: token,
+        );
+      } catch (_) {
+        // Keep the local cache as the source of truth if the network is unavailable.
+      }
+    }
+  }
+
+  Future<UserSettings?> _loadRemoteSettings() async {
+    final token = await _token();
+    if (token == null || token.isEmpty) {
+      return null;
+    }
+
+    try {
+      final response = await BackendApi.getJson('/api/settings_get.php', token: token);
+      if (response['success'] != true) {
+        return null;
+      }
+
+      final settingsJson = response['settings'];
+      if (settingsJson is Map<String, dynamic>) {
+        final settings = UserSettings.fromJson(Map<String, dynamic>.from(settingsJson));
+        final user = response['user'];
+        if (user is Map<String, dynamic> && (user['displayName'] ?? '').toString().trim().isNotEmpty) {
+          return settings.copyWith(userName: user['displayName'].toString());
+        }
+        return settings;
+      }
+    } catch (_) {
+      return null;
+    }
+
+    return null;
+  }
+
+  Future<UserSettings> _loadCachedSettings() async {
     final prefs = await SharedPreferences.getInstance();
     final appsJson = prefs.getString(AppConstants.keyMonitoredApps);
     final apps = appsJson != null ? List<String>.from(jsonDecode(appsJson)) : <String>[];
@@ -41,10 +101,6 @@ class SettingsService {
       extraUnlockMinutes: prefs.getInt(AppConstants.keyExtraUnlockMinutes) ?? AppConstants.defaultExtraUnlockMinutes,
       maxUnlocksPerDay: prefs.getInt(AppConstants.keyMaxUnlocksPerDay) ?? AppConstants.defaultMaxUnlocksPerDay,
       monitoredApps: apps,
-      securityQuestion: prefs.getString(AppConstants.keySecurityQuestion) ?? '',
-      securityAnswer: prefs.getString(AppConstants.keySecurityAnswer) ?? '',
-      securityQuestion2: prefs.getString(AppConstants.keySecurityQuestion2) ?? '',
-      securityAnswer2: prefs.getString(AppConstants.keySecurityAnswer2) ?? '',
       lockScheduleEnabled: prefs.getBool(AppConstants.keyLockScheduleEnabled) ?? false,
       scheduleStartHour: prefs.getInt(AppConstants.keyScheduleStartHour) ?? 8,
       scheduleEndHour: prefs.getInt(AppConstants.keyScheduleEndHour) ?? 22,
@@ -54,7 +110,7 @@ class SettingsService {
     );
   }
 
-  Future<void> saveSettings(UserSettings s) async {
+  Future<void> _cacheSettings(UserSettings s) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(AppConstants.keyUserName, s.userName);
     await prefs.setInt(AppConstants.keyDailyLimitMinutes, s.dailyLimitMinutes);
@@ -62,10 +118,6 @@ class SettingsService {
     await prefs.setInt(AppConstants.keyExtraUnlockMinutes, s.extraUnlockMinutes);
     await prefs.setInt(AppConstants.keyMaxUnlocksPerDay, s.maxUnlocksPerDay);
     await prefs.setString(AppConstants.keyMonitoredApps, jsonEncode(s.monitoredApps));
-    await prefs.setString(AppConstants.keySecurityQuestion, s.securityQuestion);
-    await prefs.setString(AppConstants.keySecurityAnswer, s.securityAnswer.toLowerCase().trim());
-    await prefs.setString(AppConstants.keySecurityQuestion2, s.securityQuestion2);
-    await prefs.setString(AppConstants.keySecurityAnswer2, s.securityAnswer2.toLowerCase().trim());
     await prefs.setBool(AppConstants.keyLockScheduleEnabled, s.lockScheduleEnabled);
     await prefs.setInt(AppConstants.keyScheduleStartHour, s.scheduleStartHour);
     await prefs.setInt(AppConstants.keyScheduleEndHour, s.scheduleEndHour);
@@ -95,18 +147,6 @@ class SettingsService {
     }
     final stored = await getPin();
     return stored != null && stored == input;
-  }
-
-  Future<bool> verifySecurityAnswer(String input) async {
-    final prefs = await SharedPreferences.getInstance();
-    final stored = prefs.getString(AppConstants.keySecurityAnswer) ?? '';
-    return stored == input.toLowerCase().trim();
-  }
-
-  Future<bool> verifySecurityAnswer2(String input) async {
-    final prefs = await SharedPreferences.getInstance();
-    final stored = prefs.getString(AppConstants.keySecurityAnswer2) ?? '';
-    return stored == input.toLowerCase().trim();
   }
 
   // ── LOCK STATE ──────────────────────────────────────────

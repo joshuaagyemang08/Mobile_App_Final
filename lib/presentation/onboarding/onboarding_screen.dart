@@ -32,10 +32,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   int _cooldownMinutes = 30;
   int _extraUnlockMinutes = 15;
   int _maxUnlocks = 1;
-  int _selectedQuestion = 0;
-  int _selectedQuestion2 = 1;
-  final _answerController = TextEditingController();
-  final _answerController2 = TextEditingController();
   final _pinController = TextEditingController();
   final _pinConfirmController = TextEditingController();
 
@@ -51,8 +47,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   void dispose() {
     _pageController.dispose();
     _nameController.dispose();
-    _answerController.dispose();
-    _answerController2.dispose();
     _pinController.dispose();
     _pinConfirmController.dispose();
     super.dispose();
@@ -95,18 +89,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           setState(() => _pinError = 'PINs do not match.');
           return false;
         }
-        if (_answerController.text.trim().isEmpty) {
-          _showError('Please answer the first security question.');
-          return false;
-        }
-        if (_selectedQuestion2 == _selectedQuestion) {
-          _showError('Please choose two different security questions.');
-          return false;
-        }
-        if (_answerController2.text.trim().isEmpty) {
-          _showError('Please answer the second security question.');
-          return false;
-        }
         return true;
       default:
         return true;
@@ -129,10 +111,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       extraUnlockMinutes: _extraUnlockMinutes,
       maxUnlocksPerDay: _maxUnlocks,
       monitoredApps: _selectedApps.toList(),
-      securityQuestion: AppConstants.securityQuestions[_selectedQuestion],
-      securityAnswer: _answerController.text.trim().toLowerCase(),
-      securityQuestion2: AppConstants.securityQuestions[_selectedQuestion2],
-      securityAnswer2: _answerController2.text.trim().toLowerCase(),
       lockScheduleEnabled: false,
       scheduleStartHour: _wakeHour,
       scheduleEndHour: _sleepHour,
@@ -783,8 +761,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         children: [
           _pageTitle('Set your PIN'),
           const SizedBox(height: 8),
-          Text('This protects settings and unlock controls.',
-              style: Theme.of(context).textTheme.bodyMedium),
+          Text(
+            'This protects settings and unlock controls. Email OTP is used for recovery.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
           const SizedBox(height: 16),
           _setupCard(
             icon: Icons.pin_outlined,
@@ -820,56 +800,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           const SizedBox(height: 12),
           _setupCard(
-            icon: Icons.help_outline_rounded,
-            title: 'Recovery questions',
-            subtitle: 'Used if you forget your PIN',
-            child: Column(
-              children: [
-                _questionDropdown(
-                  value: _selectedQuestion,
-                  label: 'Choose question 1',
-                  onChanged: (v) => setState(() => _selectedQuestion = v),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _answerController,
-                  decoration: const InputDecoration(labelText: 'Answer 1'),
-                  textCapitalization: TextCapitalization.none,
-                ),
-                const SizedBox(height: 12),
-                _questionDropdown(
-                  value: _selectedQuestion2,
-                  label: 'Choose a second question',
-                  onChanged: (v) => setState(() => _selectedQuestion2 = v),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _answerController2,
-                  decoration: const InputDecoration(labelText: 'Second answer'),
-                  textCapitalization: TextCapitalization.none,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppTheme.warning.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppTheme.warning.withOpacity(0.3)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.info_outline, color: AppTheme.warning, size: 18),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Remember both answers exactly — they are case-insensitive but spelling matters.',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.warning),
-                  ),
-                ),
-              ],
+            icon: Icons.mark_email_unread_rounded,
+            title: 'Email OTP recovery',
+            subtitle: 'If you forget your PIN, we will email you a one-time code.',
+            child: Text(
+              'Use the recovery code sent to your inbox to reset your PIN from the settings screen.',
+              style: Theme.of(context).textTheme.bodyMedium,
             ),
           ),
         ],
@@ -880,16 +816,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget _buildDonePage() {
     return _PageWrapper(
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.verified_rounded, size: 80, color: AppTheme.primary),
-          const SizedBox(height: 20),
-          Text("You're all set!",
-              style: Theme.of(context).textTheme.displayMedium?.copyWith(color: AppTheme.primary)),
-          const SizedBox(height: 12),
+          _pageTitle('You\'re all set'),
+          const SizedBox(height: 8),
           Text(
             'FocusLock will now monitor your social media usage and lock apps when you hit your limit.',
-            textAlign: TextAlign.center,
+            textAlign: TextAlign.left,
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: AppTheme.textSecondary),
           ),
           const SizedBox(height: 18),
@@ -1000,49 +933,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _questionDropdown({
-    required int value,
-    required String label,
-    required ValueChanged<int> onChanged,
-  }) {
-    return DropdownButtonFormField<int>(
-      isExpanded: true,
-      initialValue: value,
-      dropdownColor: AppTheme.bgCard,
-      decoration: InputDecoration(
-        labelText: label,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-      ),
-      items: AppConstants.securityQuestions.asMap().entries.map((e) {
-        return DropdownMenuItem(
-          value: e.key,
-          child: Text(
-            e.value,
-            overflow: TextOverflow.ellipsis,
-            maxLines: 1,
-            style: const TextStyle(fontSize: 13),
-          ),
-        );
-      }).toList(),
-      selectedItemBuilder: (context) {
-        return AppConstants.securityQuestions.map((q) {
-          return Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              q,
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
-              style: const TextStyle(fontSize: 13),
-            ),
-          );
-        }).toList();
-      },
-      onChanged: (v) {
-        if (v != null) onChanged(v);
-      },
     );
   }
 

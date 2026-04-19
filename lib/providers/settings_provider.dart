@@ -27,6 +27,4 @@ class SettingsProvider extends ChangeNotifier {
 
   Future<void> savePin(String pin) => _service.savePin(pin);
   Future<bool> verifyPin(String pin) => _service.verifyPin(pin);
-  Future<bool> verifySecurityAnswer(String answer) => _service.verifySecurityAnswer(answer);
-  Future<bool> verifySecurityAnswer2(String answer) => _service.verifySecurityAnswer2(answer);
 }

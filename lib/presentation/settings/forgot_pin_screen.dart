@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/scene_background.dart';
-import '../../providers/settings_provider.dart';
+import '../../data/services/auth_service.dart';
+import '../../data/services/settings_service.dart';
 
 class ForgotPinScreen extends StatefulWidget {
   const ForgotPinScreen({super.key});
@@ -13,36 +14,96 @@ class ForgotPinScreen extends StatefulWidget {
 }
 
 class _ForgotPinScreenState extends State<ForgotPinScreen> {
-  final _answerCtrl = TextEditingController();
-  final _answerCtrl2 = TextEditingController();
+  final _otpCtrl = TextEditingController();
   final _newPinCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
+  final _auth = AuthService();
+
+  String? _email;
   String? _error;
-  bool _step2 = false; // step1 = verify answer, step2 = new PIN
+  String? _info;
   bool _loading = false;
+  bool _sending = false;
+  bool _step2 = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadContextAndSendCode();
+  }
 
   @override
   void dispose() {
-    _answerCtrl.dispose();
-    _answerCtrl2.dispose();
+    _otpCtrl.dispose();
     _newPinCtrl.dispose();
     _confirmCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _verifyAnswer() async {
-    setState(() { _loading = true; _error = null; });
-    final sp = context.read<SettingsProvider>();
-    final ok1 = await sp.verifySecurityAnswer(_answerCtrl.text.trim());
-    final ok2 = await sp.verifySecurityAnswer2(_answerCtrl2.text.trim());
+  Future<void> _loadContextAndSendCode() async {
+    final email = await _auth.getUserEmail();
+    if (!mounted) return;
+
+    setState(() => _email = email);
+    if (email == null || email.isEmpty) {
+      setState(() => _error = 'You need to sign in again before resetting your PIN.');
+      return;
+    }
+
+    await _sendCode();
+  }
+
+  Future<void> _sendCode() async {
+    setState(() {
+      _sending = true;
+      _error = null;
+      _info = null;
+    });
+
+    final result = await _auth.requestPinResetOtp();
+    if (!mounted) return;
+
+    setState(() {
+      _sending = false;
+      _info = result.message.isNotEmpty ? result.message : 'A PIN reset code has been sent to your email.';
+      if (!result.success) {
+        _error = result.message.isNotEmpty ? result.message : 'Could not send a PIN reset code.';
+      }
+    });
+  }
+
+  Future<void> _verifyCode() async {
+    final email = _email;
+    if (email == null || email.isEmpty) {
+      setState(() => _error = 'Missing signed-in email.');
+      return;
+    }
+
+    if (_otpCtrl.text.trim().isEmpty) {
+      setState(() => _error = 'Enter the code sent to your email.');
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    final result = await _auth.verifyOtp(
+      email: email,
+      code: _otpCtrl.text.trim(),
+      purpose: 'pin_reset',
+    );
+
     if (!mounted) return;
     setState(() => _loading = false);
 
-    if (ok1 && ok2) {
-      setState(() => _step2 = true);
-    } else {
-      setState(() => _error = 'Both answers must match. Please try again.');
+    if (!result.success) {
+      setState(() => _error = result.message.isNotEmpty ? result.message : 'Incorrect code.');
+      return;
     }
+
+    setState(() => _step2 = true);
   }
 
   Future<void> _setNewPin() async {
@@ -54,35 +115,34 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
       setState(() => _error = 'PINs do not match.');
       return;
     }
-    setState(() { _loading = true; _error = null; });
-    final sp = context.read<SettingsProvider>();
-    await sp.savePin(_newPinCtrl.text);
-    setState(() => _loading = false);
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('PIN reset successfully!'), backgroundColor: AppTheme.success),
-      );
-      Navigator.pop(context);
-    }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    await SettingsService().savePin(_newPinCtrl.text);
+    if (!mounted) return;
+
+    setState(() => _loading = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('PIN reset successfully!'), backgroundColor: AppTheme.success),
+    );
+    Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
-    final sp = context.watch<SettingsProvider>();
-    final question = sp.settings.securityQuestion;
-    final question2 = sp.settings.securityQuestion2;
-
     return SceneBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(title: const Text('Recover PIN')),
         body: Padding(
           padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.9),
@@ -92,143 +152,133 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
                     BoxShadow(color: AppTheme.shadow, blurRadius: 24, offset: Offset(0, 12)),
                   ],
                 ),
-                child: Row(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 60,
-                      height: 60,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(colors: [AppTheme.warning, AppTheme.accent]),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: const Icon(Icons.key_rounded, color: Colors.white, size: 28),
+                    Row(
+                      children: [
+                        Container(
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(colors: [AppTheme.warning, AppTheme.accent]),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Icon(Icons.key_rounded, color: Colors.white, size: 28),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('PIN Recovery', style: Theme.of(context).textTheme.titleLarge),
+                              const SizedBox(height: 4),
+                              Text(
+                                _step2
+                                    ? 'Code verified. Set your new PIN below.'
+                                    : 'Enter the one-time code sent to your email to reset your PIN.',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    const SizedBox(height: 24),
+                    if (_email != null) ...[
+                      Text('Recovery email', style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 8),
+                      Text(_email!, style: Theme.of(context).textTheme.bodyMedium),
+                      const SizedBox(height: 16),
+                    ],
+                    if (_error != null) ...[
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: AppTheme.danger.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: AppTheme.danger.withOpacity(0.25)),
+                        ),
+                        child: Text(_error!, style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppTheme.danger)),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    if (_info != null) ...[
+                      Text(_info!, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.textSecondary)),
+                      const SizedBox(height: 16),
+                    ],
+                    if (!_step2) ...[
+                      TextField(
+                        controller: _otpCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Email OTP',
+                          hintText: 'Enter the code you received',
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
                         children: [
-                          Text('PIN Recovery', style: Theme.of(context).textTheme.titleLarge),
-                          const SizedBox(height: 4),
-                          Text(
-                            _step2
-                                ? 'Identity verified. Set your new PIN below.'
-                                : 'Answer both security questions to reset your PIN.',
-                            style: Theme.of(context).textTheme.bodyMedium,
+                          TextButton(
+                            onPressed: _sending ? null : _sendCode,
+                            child: _sending
+                                ? const SizedBox(
+                                    height: 16,
+                                    width: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Text('Resend code'),
+                          ),
+                          const Spacer(),
+                          ElevatedButton(
+                            onPressed: _loading ? null : _verifyCode,
+                            child: _loading
+                                ? const SizedBox(
+                                    height: 18,
+                                    width: 18,
+                                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                  )
+                                : const Text('Verify code'),
                           ),
                         ],
                       ),
-                    ),
+                    ] else ...[
+                      TextField(
+                        controller: _newPinCtrl,
+                        obscureText: true,
+                        keyboardType: TextInputType.number,
+                        maxLength: AppConstants.pinLength,
+                        decoration: const InputDecoration(labelText: 'New PIN (6 digits)'),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _confirmCtrl,
+                        obscureText: true,
+                        keyboardType: TextInputType.number,
+                        maxLength: AppConstants.pinLength,
+                        decoration: const InputDecoration(labelText: 'Confirm new PIN (6 digits)'),
+                      ),
+                      const SizedBox(height: 16),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: ElevatedButton(
+                          onPressed: _loading ? null : _setNewPin,
+                          child: _loading
+                              ? const SizedBox(
+                                  height: 18,
+                                  width: 18,
+                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                )
+                              : const Text('Set New PIN'),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
-              const SizedBox(height: 24),
-
-              if (!_step2) ...[
-              // Step 1: verify security answer
-              Text('Security Question 1', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.92),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: AppTheme.divider),
-                ),
-                child: Text(question.isEmpty ? 'No security question set.' : question,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontStyle: FontStyle.italic,
-                          color: AppTheme.textSecondary,
-                        )),
-              ),
-              const SizedBox(height: 20),
-              Text('Security Question 2', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.92),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: AppTheme.divider),
-                ),
-                child: Text(question2.isEmpty ? 'No second security question set.' : question2,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontStyle: FontStyle.italic,
-                          color: AppTheme.textSecondary,
-                        )),
-              ),
-              const SizedBox(height: 20),
-              if (question.isEmpty || question2.isEmpty)
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppTheme.danger.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: AppTheme.danger.withOpacity(0.3)),
-                  ),
-                  child: Text(
-                    'Security questions were not fully configured. Please update them in Settings.',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppTheme.danger),
-                  ),
-                )
-              else ...[
-                TextField(
-                  controller: _answerCtrl,
-                  decoration: InputDecoration(
-                    labelText: 'Answer 1',
-                    errorText: _error,
-                    hintText: 'Answer is not case-sensitive',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _answerCtrl2,
-                  decoration: InputDecoration(
-                    labelText: 'Answer 2',
-                    errorText: _error,
-                    hintText: 'Answer is not case-sensitive',
-                  ),
-                ),
-                const SizedBox(height: 24),
-                ElevatedButton(
-                  onPressed: _loading ? null : _verifyAnswer,
-                  child: _loading
-                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : const Text('Verify Answer'),
-                ),
-              ],
-              ] else ...[
-              // Step 2: set new PIN
-              const Icon(Icons.verified_rounded, size: 40, color: AppTheme.success),
-              const SizedBox(height: 8),
-              Text('Identity Verified', style: Theme.of(context).textTheme.titleLarge?.copyWith(color: AppTheme.success)),
-              const SizedBox(height: 24),
-              TextField(
-                controller: _newPinCtrl,
-                obscureText: true,
-                keyboardType: TextInputType.number,
-                maxLength: AppConstants.pinLength,
-                decoration: const InputDecoration(labelText: 'New PIN (6 digits)'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _confirmCtrl,
-                obscureText: true,
-                keyboardType: TextInputType.number,
-                maxLength: AppConstants.pinLength,
-                decoration: InputDecoration(labelText: 'Confirm new PIN (6 digits)', errorText: _error),
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _loading ? null : _setNewPin,
-                child: _loading
-                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                    : const Text('Set New PIN'),
-              ),
-              ],
-            ],
+            ),
           ),
         ),
       ),

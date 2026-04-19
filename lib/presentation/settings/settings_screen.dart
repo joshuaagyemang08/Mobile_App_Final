@@ -409,13 +409,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                           onTap: () => _showChangePinDialog(context, sp),
                         ),
-                        const Divider(height: 1),
-                        ListTile(
-                          title: Text('Update Recovery Questions',
-                              style: Theme.of(context).textTheme.titleMedium),
-                          trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                          onTap: () => _showSecurityQuestionDialog(context, sp, s),
-                        ),
                       ],
                     ),
                   ),
@@ -501,10 +494,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     showDialog(context: context, builder: (_) => _ChangePinDialog(sp: sp));
   }
 
-  void _showSecurityQuestionDialog(BuildContext context, SettingsProvider sp, UserSettings s) {
-    showDialog(context: context, builder: (_) => _SecurityQuestionDialog(sp: sp, settings: s));
-  }
-
   String _fmtHour(int h) {
     final display = h == 0 ? 12 : (h > 12 ? h - 12 : h);
     final period = h >= 12 ? 'PM' : 'AM';
@@ -524,10 +513,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onPressed: () async {
               await sp.update(UserSettings.defaults().copyWith(
                 userName: sp.settings.userName,
-                securityQuestion: sp.settings.securityQuestion,
-                securityAnswer: sp.settings.securityAnswer,
-                securityQuestion2: sp.settings.securityQuestion2,
-                securityAnswer2: sp.settings.securityAnswer2,
               ));
               if (ctx.mounted) {
                 Navigator.pop(ctx);
@@ -956,7 +941,7 @@ class _PinGateDialogState extends State<_PinGateDialog> {
                   Navigator.pop(context, false);
                   Future.microtask(() => Navigator.pushNamed(context, '/forgot-pin'));
                 },
-                child: const Text('Forgot PIN? Recover via security questions',
+                child: const Text('Forgot PIN? Recover via email OTP',
                     style: TextStyle(color: AppTheme.warning, fontSize: 12)),
               ),
             ],
@@ -1043,109 +1028,3 @@ class _ChangePinDialogState extends State<_ChangePinDialog> {
       );
 }
 
-class _SecurityQuestionDialog extends StatefulWidget {
-  final SettingsProvider sp;
-  final UserSettings settings;
-  const _SecurityQuestionDialog({required this.sp, required this.settings});
-
-  @override
-  State<_SecurityQuestionDialog> createState() => _SecurityQuestionDialogState();
-}
-
-class _SecurityQuestionDialogState extends State<_SecurityQuestionDialog> {
-  late int _selectedQ;
-  late int _selectedQ2;
-  final _answerCtrl = TextEditingController();
-  final _answerCtrl2 = TextEditingController();
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _selectedQ = AppConstants.securityQuestions
-        .indexOf(widget.settings.securityQuestion)
-        .clamp(0, AppConstants.securityQuestions.length - 1);
-    _selectedQ2 = AppConstants.securityQuestions
-        .indexOf(widget.settings.securityQuestion2)
-        .clamp(0, AppConstants.securityQuestions.length - 1);
-  }
-
-  @override
-  void dispose() {
-    _answerCtrl.dispose();
-    _answerCtrl2.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    if (_selectedQ == _selectedQ2) {
-      setState(() => _error = 'Choose two different security questions.');
-      return;
-    }
-    if (_answerCtrl.text.trim().isEmpty || _answerCtrl2.text.trim().isEmpty) {
-      setState(() => _error = 'Please provide both answers.');
-      return;
-    }
-    await widget.sp.update(widget.settings.copyWith(
-      securityQuestion: AppConstants.securityQuestions[_selectedQ],
-      securityAnswer: _answerCtrl.text.trim().toLowerCase(),
-      securityQuestion2: AppConstants.securityQuestions[_selectedQ2],
-      securityAnswer2: _answerCtrl2.text.trim().toLowerCase(),
-    ));
-    if (mounted) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Recovery questions updated!'), backgroundColor: AppTheme.success),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-        backgroundColor: Theme.of(context).cardColor,
-        title: const Text('Update Recovery Questions'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            DropdownButtonFormField<int>(
-              initialValue: _selectedQ,
-              dropdownColor: Theme.of(context).cardColor,
-              decoration: const InputDecoration(labelText: 'Question 1'),
-              items: AppConstants.securityQuestions.asMap().entries
-                  .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value, style: const TextStyle(fontSize: 12))))
-                  .toList(),
-              onChanged: (v) => setState(() => _selectedQ = v!),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _answerCtrl,
-              decoration: InputDecoration(labelText: 'Answer 1', errorText: _error),
-              onChanged: (_) => setState(() => _error = null),
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<int>(
-              initialValue: _selectedQ2,
-              dropdownColor: Theme.of(context).cardColor,
-              decoration: const InputDecoration(labelText: 'Question 2'),
-              items: AppConstants.securityQuestions.asMap().entries
-                  .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value, style: const TextStyle(fontSize: 12))))
-                  .toList(),
-              onChanged: (v) => setState(() => _selectedQ2 = v!),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _answerCtrl2,
-              decoration: InputDecoration(labelText: 'Answer 2', errorText: _error),
-              onChanged: (_) => setState(() => _error = null),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          ElevatedButton(
-              onPressed: _save,
-              style: ElevatedButton.styleFrom(minimumSize: const Size(80, 40)),
-              child: const Text('Save')),
-        ],
-      );
-}

@@ -5,10 +5,6 @@ class UserSettings {
   final int extraUnlockMinutes;
   final int maxUnlocksPerDay;
   final List<String> monitoredApps;
-  final String securityQuestion;
-  final String securityAnswer;
-  final String securityQuestion2;
-  final String securityAnswer2;
   final bool lockScheduleEnabled;
   final int scheduleStartHour;
   final int scheduleEndHour;
@@ -23,10 +19,6 @@ class UserSettings {
     required this.extraUnlockMinutes,
     required this.maxUnlocksPerDay,
     required this.monitoredApps,
-    required this.securityQuestion,
-    required this.securityAnswer,
-    required this.securityQuestion2,
-    required this.securityAnswer2,
     required this.lockScheduleEnabled,
     required this.scheduleStartHour,
     required this.scheduleEndHour,
@@ -42,10 +34,6 @@ class UserSettings {
     int? extraUnlockMinutes,
     int? maxUnlocksPerDay,
     List<String>? monitoredApps,
-    String? securityQuestion,
-    String? securityAnswer,
-    String? securityQuestion2,
-    String? securityAnswer2,
     bool? lockScheduleEnabled,
     int? scheduleStartHour,
     int? scheduleEndHour,
@@ -60,10 +48,6 @@ class UserSettings {
       extraUnlockMinutes: extraUnlockMinutes ?? this.extraUnlockMinutes,
       maxUnlocksPerDay: maxUnlocksPerDay ?? this.maxUnlocksPerDay,
       monitoredApps: monitoredApps ?? this.monitoredApps,
-      securityQuestion: securityQuestion ?? this.securityQuestion,
-      securityAnswer: securityAnswer ?? this.securityAnswer,
-      securityQuestion2: securityQuestion2 ?? this.securityQuestion2,
-      securityAnswer2: securityAnswer2 ?? this.securityAnswer2,
       lockScheduleEnabled: lockScheduleEnabled ?? this.lockScheduleEnabled,
       scheduleStartHour: scheduleStartHour ?? this.scheduleStartHour,
       scheduleEndHour: scheduleEndHour ?? this.scheduleEndHour,
@@ -80,10 +64,6 @@ class UserSettings {
         extraUnlockMinutes: 15,
         maxUnlocksPerDay: 1,
         monitoredApps: [],
-        securityQuestion: '',
-        securityAnswer: '',
-        securityQuestion2: '',
-        securityAnswer2: '',
         lockScheduleEnabled: false,
         scheduleStartHour: 8,
         scheduleEndHour: 22,
@@ -91,4 +71,55 @@ class UserSettings {
         wakeHour: 7,
         sleepHour: 23,
       );
+
+  factory UserSettings.fromJson(Map<String, dynamic> json) {
+    final monitoredApps = json['monitoredApps'];
+    return UserSettings(
+      userName: (json['userName'] ?? '').toString(),
+      dailyLimitMinutes: _asInt(json['dailyLimitMinutes'], 60),
+      cooldownMinutes: _asInt(json['cooldownMinutes'], 30),
+      extraUnlockMinutes: _asInt(json['extraUnlockMinutes'], 15),
+      maxUnlocksPerDay: _asInt(json['maxUnlocksPerDay'], 1),
+      monitoredApps: monitoredApps is List
+          ? monitoredApps.map((value) => value.toString()).toList()
+          : <String>[],
+      lockScheduleEnabled: _asBool(json['lockScheduleEnabled'], false),
+      scheduleStartHour: _asInt(json['scheduleStartHour'], 8),
+      scheduleEndHour: _asInt(json['scheduleEndHour'], 22),
+      accelerometerEnabled: _asBool(json['accelerometerEnabled'], true),
+      wakeHour: _asInt(json['wakeHour'], 7),
+      sleepHour: _asInt(json['sleepHour'], 23),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'userName': userName,
+      'dailyLimitMinutes': dailyLimitMinutes,
+      'cooldownMinutes': cooldownMinutes,
+      'extraUnlockMinutes': extraUnlockMinutes,
+      'maxUnlocksPerDay': maxUnlocksPerDay,
+      'monitoredApps': monitoredApps,
+      'lockScheduleEnabled': lockScheduleEnabled,
+      'scheduleStartHour': scheduleStartHour,
+      'scheduleEndHour': scheduleEndHour,
+      'accelerometerEnabled': accelerometerEnabled,
+      'wakeHour': wakeHour,
+      'sleepHour': sleepHour,
+    };
+  }
+
+  static int _asInt(dynamic value, int fallback) {
+    if (value is int) return value;
+    if (value is double) return value.toInt();
+    if (value is String) return int.tryParse(value) ?? fallback;
+    return fallback;
+  }
+
+  static bool _asBool(dynamic value, bool fallback) {
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    if (value is String) return value == 'true' || value == '1';
+    return fallback;
+  }
 }
