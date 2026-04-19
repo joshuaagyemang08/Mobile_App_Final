@@ -283,7 +283,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     const Text('Remember me'),
                                     const Spacer(),
                                     TextButton(
-                                      onPressed: () {},
+                                      onPressed: () => Navigator.pushNamed(context, '/forgot-password'),
                                       child: const Text('Forgot Password?'),
                                     ),
                                   ],
@@ -326,16 +326,6 @@ class _LoginScreenState extends State<LoginScreen> {
                                     ),
                                     const Expanded(child: Divider()),
                                   ],
-                                ),
-                                const SizedBox(height: 12),
-                                OutlinedButton.icon(
-                                  onPressed: () {},
-                                  style: OutlinedButton.styleFrom(
-                                    minimumSize: const Size(double.infinity, 48),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                  ),
-                                  icon: const Icon(Icons.g_mobiledata_rounded, size: 30),
-                                  label: const Text('Google'),
                                 ),
                               ],
                             ),

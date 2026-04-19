@@ -1,111 +1,38 @@
 import 'package:flutter/material.dart';
 
-import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/focuslock_brand.dart';
 import '../../core/widgets/scene_background.dart';
 import '../../data/services/auth_service.dart';
-import '../../data/services/settings_service.dart';
 
-class ForgotPinScreen extends StatefulWidget {
-  const ForgotPinScreen({super.key});
+class ForgotPasswordScreen extends StatefulWidget {
+  const ForgotPasswordScreen({super.key});
 
   @override
-  State<ForgotPinScreen> createState() => _ForgotPinScreenState();
+  State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
 }
 
-class _ForgotPinScreenState extends State<ForgotPinScreen> {
+class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
+  final _emailCtrl = TextEditingController();
   final _otpCtrl = TextEditingController();
-  final _newPinCtrl = TextEditingController();
-  final _confirmCtrl = TextEditingController();
+  final _newPasswordCtrl = TextEditingController();
+  final _confirmPasswordCtrl = TextEditingController();
   final _auth = AuthService();
 
-  String? _email;
+  bool _sending = false;
+  bool _verifying = false;
+  bool _resetting = false;
+  bool _otpVerified = false;
   String? _error;
   String? _info;
-  bool _loading = false;
-  bool _sending = false;
-  bool _step2 = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadContextAndSendCode();
-  }
 
   @override
   void dispose() {
+    _emailCtrl.dispose();
     _otpCtrl.dispose();
-    _newPinCtrl.dispose();
-    _confirmCtrl.dispose();
+    _newPasswordCtrl.dispose();
+    _confirmPasswordCtrl.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadContextAndSendCode() async {
-    final email = await _auth.getUserEmail();
-    if (!mounted) return;
-
-    setState(() => _email = email);
-    if (email == null || email.isEmpty) {
-      setState(() => _error = 'You need to sign in again before resetting your PIN.');
-      return;
-    }
-
-    await _sendCode();
-  }
-
-  Future<void> _sendCode() async {
-    setState(() {
-      _sending = true;
-      _error = null;
-      _info = null;
-    });
-
-    final result = await _auth.requestPinResetOtp();
-    if (!mounted) return;
-
-    setState(() {
-      _sending = false;
-      _info = result.message.isNotEmpty ? result.message : 'A PIN reset code has been sent to your email.';
-      if (!result.success) {
-        _error = result.message.isNotEmpty ? result.message : 'Could not send a PIN reset code.';
-      }
-    });
-  }
-
-  Future<void> _verifyCode() async {
-    final email = _email;
-    if (email == null || email.isEmpty) {
-      setState(() => _error = 'Missing signed-in email.');
-      return;
-    }
-
-    final code = _extractOtpCode(_otpCtrl.text);
-    if (code == null) {
-      setState(() => _error = 'Enter the code sent to your email.');
-      return;
-    }
-
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-
-    final result = await _auth.verifyOtp(
-      email: email,
-      code: code,
-      purpose: 'pin_reset',
-    );
-
-    if (!mounted) return;
-    setState(() => _loading = false);
-
-    if (!result.success) {
-      setState(() => _error = result.message.isNotEmpty ? result.message : 'Incorrect code.');
-      return;
-    }
-
-    setState(() => _step2 = true);
   }
 
   String? _extractOtpCode(String rawInput) {
@@ -130,27 +57,97 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
     return codeMatch?.group(0);
   }
 
-  Future<void> _setNewPin() async {
-    if (!RegExp(r'^\d{6}$').hasMatch(_newPinCtrl.text)) {
-      setState(() => _error = 'PIN must be exactly ${AppConstants.pinLength} digits.');
-      return;
-    }
-    if (_newPinCtrl.text != _confirmCtrl.text) {
-      setState(() => _error = 'PINs do not match.');
+  Future<void> _sendCode() async {
+    final email = _emailCtrl.text.trim().toLowerCase();
+    if (email.isEmpty) {
+      setState(() => _error = 'Enter your account email first.');
       return;
     }
 
     setState(() {
-      _loading = true;
+      _sending = true;
       _error = null;
+      _info = null;
+      _otpVerified = false;
     });
 
-    await SettingsService().savePin(_newPinCtrl.text);
+    final result = await _auth.requestPasswordResetOtp(email: email);
     if (!mounted) return;
 
-    setState(() => _loading = false);
+    setState(() {
+      _sending = false;
+      if (result.success) {
+        _info = result.message.isNotEmpty ? result.message : 'A reset code was sent to your email.';
+      } else {
+        _error = result.message.isNotEmpty ? result.message : 'Could not send reset code.';
+      }
+    });
+  }
+
+  Future<void> _verifyCode() async {
+    final email = _emailCtrl.text.trim().toLowerCase();
+    final code = _extractOtpCode(_otpCtrl.text);
+
+    if (email.isEmpty) {
+      setState(() => _error = 'Enter your account email first.');
+      return;
+    }
+    if (code == null) {
+      setState(() => _error = 'Enter the code from your email, or paste the full link.');
+      return;
+    }
+
+    setState(() {
+      _verifying = false;
+      _otpVerified = true;
+      _info = 'Code captured. Set your new password below and tap Reset Password.';
+      _error = null;
+    });
+  }
+
+  Future<void> _resetPassword() async {
+    final email = _emailCtrl.text.trim().toLowerCase();
+    final code = _extractOtpCode(_otpCtrl.text);
+
+    if (!_otpVerified) {
+      setState(() => _error = 'Verify your code first.');
+      return;
+    }
+    if (email.isEmpty || code == null) {
+      setState(() => _error = 'Email and code are required.');
+      return;
+    }
+    if (_newPasswordCtrl.text.length < 6) {
+      setState(() => _error = 'New password must be at least 6 characters.');
+      return;
+    }
+    if (_newPasswordCtrl.text != _confirmPasswordCtrl.text) {
+      setState(() => _error = 'Passwords do not match.');
+      return;
+    }
+
+    setState(() {
+      _resetting = true;
+      _error = null;
+      _info = null;
+    });
+
+    final result = await _auth.resetPasswordWithOtp(
+      email: email,
+      code: code,
+      newPassword: _newPasswordCtrl.text,
+    );
+
+    if (!mounted) return;
+    setState(() => _resetting = false);
+
+    if (!result.success) {
+      setState(() => _error = result.message.isNotEmpty ? result.message : 'Could not reset password.');
+      return;
+    }
+
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('PIN reset successfully!'), backgroundColor: AppTheme.success),
+      const SnackBar(content: Text('Password reset successful. You can now log in.')),
     );
     Navigator.pop(context);
   }
@@ -205,7 +202,7 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  _step2 ? 'Set a new\nPIN' : 'Recover your\nPIN',
+                                  _otpVerified ? 'Set new\npassword' : 'Recover\npassword',
                                   style: Theme.of(context).textTheme.displayMedium?.copyWith(
                                         color: Colors.white,
                                         fontSize: 36,
@@ -214,9 +211,9 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
                                 ),
                                 const SizedBox(height: 10),
                                 Text(
-                                  _step2
-                                      ? 'Code verified. Create a new 6-digit PIN to protect your settings.'
-                                      : 'We sent a one-time code to your recovery email. Paste the code or full email link below.',
+                                  _otpVerified
+                                      ? 'Code verified. Choose a strong new password.'
+                                      : 'Enter your email to receive a password reset code.',
                                   style: Theme.of(context)
                                       .textTheme
                                       .bodySmall
@@ -236,13 +233,27 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                if (_email != null) ...[
-                                  Text('Recovery email', style: Theme.of(context).textTheme.titleMedium),
-                                  const SizedBox(height: 4),
-                                  Text(_email!, style: Theme.of(context).textTheme.bodySmall),
-                                  const SizedBox(height: 12),
-                                ],
+                                TextField(
+                                  controller: _emailCtrl,
+                                  keyboardType: TextInputType.emailAddress,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Account email',
+                                    prefixIcon: Icon(Icons.email_outlined),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                TextField(
+                                  controller: _otpCtrl,
+                                  keyboardType: TextInputType.text,
+                                  autofillHints: const [AutofillHints.oneTimeCode],
+                                  decoration: const InputDecoration(
+                                    labelText: 'Reset code or link',
+                                    hintText: 'e.g. 123456',
+                                    prefixIcon: Icon(Icons.mark_email_read_outlined),
+                                  ),
+                                ),
                                 if (_error != null) ...[
+                                  const SizedBox(height: 10),
                                   Container(
                                     width: double.infinity,
                                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -255,9 +266,9 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
                                       style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.danger),
                                     ),
                                   ),
-                                  const SizedBox(height: 10),
                                 ],
                                 if (_info != null) ...[
+                                  const SizedBox(height: 10),
                                   Container(
                                     width: double.infinity,
                                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -270,87 +281,70 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
                                       style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.success),
                                     ),
                                   ),
-                                  const SizedBox(height: 12),
                                 ],
-                                if (!_step2) ...[
-                                  TextField(
-                                    controller: _otpCtrl,
-                                    keyboardType: TextInputType.text,
-                                    textInputAction: TextInputAction.done,
-                                    onSubmitted: (_) => _verifyCode(),
-                                    autofillHints: const [AutofillHints.oneTimeCode],
-                                    decoration: const InputDecoration(
-                                      labelText: 'Recovery code or link',
-                                      hintText: 'e.g. 123456',
-                                      prefixIcon: Icon(Icons.mark_email_read_outlined),
-                                    ),
+                                const SizedBox(height: 16),
+                                ElevatedButton(
+                                  onPressed: _verifying ? null : _verifyCode,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF79A58D),
+                                    foregroundColor: Colors.white,
+                                    minimumSize: const Size(double.infinity, 54),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
                                   ),
-                                  const SizedBox(height: 16),
-                                  ElevatedButton(
-                                    onPressed: _loading ? null : _verifyCode,
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFF79A58D),
-                                      foregroundColor: Colors.white,
-                                      minimumSize: const Size(double.infinity, 54),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-                                    ),
-                                    child: _loading
-                                        ? const SizedBox(
-                                            width: 18,
-                                            height: 18,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                          )
-                                        : const Text('Verify Recovery Code'),
-                                  ),
+                                  child: _verifying
+                                      ? const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                        )
+                                      : const Text('Verify Reset Code'),
+                                ),
+                                const SizedBox(height: 12),
+                                TextButton(
+                                  onPressed: _sending ? null : _sendCode,
+                                  child: _sending
+                                      ? const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                        )
+                                      : const Text('Send or resend code'),
+                                ),
+                                if (_otpVerified) ...[
                                   const SizedBox(height: 12),
-                                  TextButton(
-                                    onPressed: _sending ? null : _sendCode,
-                                    child: _sending
-                                        ? const SizedBox(
-                                            width: 18,
-                                            height: 18,
-                                            child: CircularProgressIndicator(strokeWidth: 2),
-                                          )
-                                        : const Text('Did not get it? Resend code'),
-                                  ),
-                                ] else ...[
                                   TextField(
-                                    controller: _newPinCtrl,
+                                    controller: _newPasswordCtrl,
                                     obscureText: true,
-                                    keyboardType: TextInputType.number,
-                                    maxLength: AppConstants.pinLength,
                                     decoration: const InputDecoration(
-                                      labelText: 'New PIN (6 digits)',
+                                      labelText: 'New password',
                                       prefixIcon: Icon(Icons.lock_outline),
                                     ),
                                   ),
                                   const SizedBox(height: 12),
                                   TextField(
-                                    controller: _confirmCtrl,
+                                    controller: _confirmPasswordCtrl,
                                     obscureText: true,
-                                    keyboardType: TextInputType.number,
-                                    maxLength: AppConstants.pinLength,
                                     decoration: const InputDecoration(
-                                      labelText: 'Confirm new PIN',
+                                      labelText: 'Confirm password',
                                       prefixIcon: Icon(Icons.verified_user_outlined),
                                     ),
                                   ),
                                   const SizedBox(height: 16),
                                   ElevatedButton(
-                                    onPressed: _loading ? null : _setNewPin,
+                                    onPressed: _resetting ? null : _resetPassword,
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: const Color(0xFF79A58D),
                                       foregroundColor: Colors.white,
                                       minimumSize: const Size(double.infinity, 54),
                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
                                     ),
-                                    child: _loading
+                                    child: _resetting
                                         ? const SizedBox(
                                             width: 18,
                                             height: 18,
                                             child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                                           )
-                                        : const Text('Set New PIN'),
+                                        : const Text('Reset Password'),
                                   ),
                                 ],
                               ],

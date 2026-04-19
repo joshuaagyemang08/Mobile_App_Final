@@ -15,6 +15,7 @@ import 'providers/theme_provider.dart';
 import 'providers/usage_provider.dart';
 import 'presentation/auth/login_screen.dart';
 import 'presentation/auth/signup_screen.dart';
+import 'presentation/auth/forgot_password_screen.dart';
 import 'presentation/onboarding/permissions_screen.dart';
 import 'presentation/onboarding/onboarding_screen.dart';
 import 'presentation/dashboard/home_shell.dart';
@@ -89,6 +90,7 @@ class FocusLockApp extends StatelessWidget {
         routes: {
           '/login': (_) => const LoginScreen(),
           '/signup': (_) => const SignupScreen(),
+          '/forgot-password': (_) => const ForgotPasswordScreen(),
           '/home': (_) => const HomeShell(),
           '/onboarding': (_) => const OnboardingScreen(),
           '/permissions': (_) => const PermissionsScreen(),

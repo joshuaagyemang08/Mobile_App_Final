@@ -31,6 +31,8 @@ class AppConstants {
   static const String keyUserPassword = 'user_password';
   static const String keyNotificationsEnabled = 'notifications_enabled';
   static const String keyThemeDarkMode = 'theme_dark_mode';
+  static const String keyLastFocusIncreaseDate = 'last_focus_increase_date';
+  static const String keyLastMonitoredReductionDate = 'last_monitored_reduction_date';
 
   // Secure storage keys
   static const String securePin = 'focuslock_pin';

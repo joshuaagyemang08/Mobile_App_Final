@@ -126,6 +126,30 @@ class SettingsService {
     await prefs.setInt(AppConstants.keySleepHour, s.sleepHour);
   }
 
+  // ── BEHAVIOUR GUARDRAILS ───────────────────────────────
+
+  Future<DateTime?> getLastFocusIncreaseDate() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(AppConstants.keyLastFocusIncreaseDate);
+    return raw == null ? null : DateTime.tryParse(raw);
+  }
+
+  Future<DateTime?> getLastMonitoredReductionDate() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(AppConstants.keyLastMonitoredReductionDate);
+    return raw == null ? null : DateTime.tryParse(raw);
+  }
+
+  Future<void> markFocusIncreaseUsedNow() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(AppConstants.keyLastFocusIncreaseDate, DateTime.now().toIso8601String());
+  }
+
+  Future<void> markMonitoredReductionUsedNow() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(AppConstants.keyLastMonitoredReductionDate, DateTime.now().toIso8601String());
+  }
+
   // ── PIN (secure storage) ────────────────────────────────
 
   Future<void> savePin(String pin) async {

@@ -22,6 +22,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _pinVerified = false;
   String _email = '';
+  Future<GuardrailStatus>? _guardrailFuture;
 
   Future<void> _pickHour({
     required int currentHour,
@@ -183,9 +184,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Future<void> _applyGuardedUpdate(SettingsProvider sp, UserSettings updated) async {
+    final result = await sp.updateWithGuardrails(updated);
+    if (mounted) {
+      setState(() {
+        _guardrailFuture = sp.getGuardrailStatus();
+      });
+    }
+    if (!mounted || result.message == null || result.message!.isEmpty) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(result.message!),
+        backgroundColor: result.applied ? AppTheme.success : AppTheme.warning,
+      ),
+    );
+  }
+
+  String _formatDate(DateTime date) {
+    final mm = date.month.toString().padLeft(2, '0');
+    final dd = date.day.toString().padLeft(2, '0');
+    return '$mm/$dd/${date.year}';
+  }
+
   @override
   void initState() {
     super.initState();
+    _guardrailFuture = context.read<SettingsProvider>().getGuardrailStatus();
     _loadEmail();
     WidgetsBinding.instance.addPostFrameCallback((_) => _askForPin());
   }
@@ -218,6 +243,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final sp = context.watch<SettingsProvider>();
     final s = sp.settings;
     final themeProvider = context.watch<ThemeProvider>();
+    final guardrailFuture = _guardrailFuture ?? sp.getGuardrailStatus();
 
     return SceneBackground(
       child: Scaffold(
@@ -242,6 +268,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
               initiallyExpanded: true,
               child: Column(
                 children: [
+                  FutureBuilder<GuardrailStatus>(
+                    future: guardrailFuture,
+                    builder: (context, snap) {
+                      final data = snap.data;
+                      final text = data == null
+                          ? 'Increasing Focus Lock values is allowed once every 30 days. Decreases are always allowed.'
+                          : data.focusIncreaseDaysLeft <= 0
+                              ? 'You can increase Focus Lock values now. Decreases are always allowed.'
+                              : 'Next Focus Lock increase allowed on ${_formatDate(data.focusIncreaseNextAllowedAt!)} (${data.focusIncreaseDaysLeft} day${data.focusIncreaseDaysLeft == 1 ? '' : 's'} left). Decreases are always allowed.';
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          text,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.textMuted),
+                        ),
+                      );
+                    },
+                  ),
                   _PickerTile(
                     label: 'Daily Social Media Limit',
                     valueLabel: _formatDurationLong(s.dailyLimitMinutes),
@@ -250,7 +294,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       initialValue: s.dailyLimitMinutes,
                       min: 2,
                       max: 360,
-                      onPicked: (v) => sp.update(s.copyWith(dailyLimitMinutes: v)),
+                      onPicked: (v) => _applyGuardedUpdate(sp, s.copyWith(dailyLimitMinutes: v)),
                     ),
                   ),
                   _PickerTile(
@@ -261,7 +305,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       initialValue: s.cooldownMinutes,
                       min: 5,
                       max: 120,
-                      onPicked: (v) => sp.update(s.copyWith(cooldownMinutes: v)),
+                      onPicked: (v) => _applyGuardedUpdate(sp, s.copyWith(cooldownMinutes: v)),
                     ),
                   ),
                   _PickerTile(
@@ -272,7 +316,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       initialValue: s.extraUnlockMinutes,
                       min: 5,
                       max: 60,
-                      onPicked: (v) => sp.update(s.copyWith(extraUnlockMinutes: v)),
+                      onPicked: (v) => _applyGuardedUpdate(sp, s.copyWith(extraUnlockMinutes: v)),
                     ),
                   ),
                   _StepperTile(
@@ -280,8 +324,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     value: s.maxUnlocksPerDay,
                     min: 1,
                     max: 5,
-                    onDecrement: () => sp.update(s.copyWith(maxUnlocksPerDay: s.maxUnlocksPerDay - 1)),
-                    onIncrement: () => sp.update(s.copyWith(maxUnlocksPerDay: s.maxUnlocksPerDay + 1)),
+                    onDecrement: () => _applyGuardedUpdate(sp, s.copyWith(maxUnlocksPerDay: s.maxUnlocksPerDay - 1)),
+                    onIncrement: () => _applyGuardedUpdate(sp, s.copyWith(maxUnlocksPerDay: s.maxUnlocksPerDay + 1)),
                   ),
                 ],
               ),
@@ -291,36 +335,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
               icon: Icons.apps_rounded,
               title: 'Monitored Apps',
               subtitle: 'Choose which apps count toward your limit',
-              child: _Card(
-                child: Column(
-                  children: SocialApps.all.map((app) {
-                    final selected = s.monitoredApps.contains(app.packageName);
-                    return SwitchListTile(
-                      secondary: Container(
-                        width: 34,
-                        height: 34,
-                        decoration: BoxDecoration(
-                          color: AppTheme.primary.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(10),
+              child: Column(
+                children: [
+                  FutureBuilder<GuardrailStatus>(
+                    future: guardrailFuture,
+                    builder: (context, snap) {
+                      final data = snap.data;
+                      final text = data == null
+                          ? 'Reducing monitored apps is allowed once every 30 days. Adding more apps is always allowed.'
+                          : data.monitoredReductionDaysLeft <= 0
+                              ? 'You can reduce monitored apps now. Adding more apps is always allowed.'
+                              : 'Next monitored-app reduction allowed on ${_formatDate(data.monitoredReductionNextAllowedAt!)} (${data.monitoredReductionDaysLeft} day${data.monitoredReductionDaysLeft == 1 ? '' : 's'} left). Adding more apps is always allowed.';
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          text,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.textMuted),
                         ),
-                        alignment: Alignment.center,
-                        child: Icon(app.icon, size: 16, color: AppTheme.primary),
-                      ),
-                      title: Text(app.displayName,
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 14)),
-                      value: selected,
-                      onChanged: (v) {
-                        final updated = List<String>.from(s.monitoredApps);
-                        if (v) {
-                          updated.add(app.packageName);
-                        } else {
-                          updated.remove(app.packageName);
-                        }
-                        sp.update(s.copyWith(monitoredApps: updated));
-                      },
-                    );
-                  }).toList(),
-                ),
+                      );
+                    },
+                  ),
+                  _Card(
+                    child: Column(
+                      children: SocialApps.all.map((app) {
+                        final selected = s.monitoredApps.contains(app.packageName);
+                        return SwitchListTile(
+                          secondary: Container(
+                            width: 34,
+                            height: 34,
+                            decoration: BoxDecoration(
+                              color: AppTheme.primary.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            alignment: Alignment.center,
+                            child: Icon(app.icon, size: 16, color: AppTheme.primary),
+                          ),
+                          title: Text(app.displayName,
+                              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 14)),
+                          value: selected,
+                          onChanged: (v) {
+                            final updated = List<String>.from(s.monitoredApps);
+                            if (v) {
+                              updated.add(app.packageName);
+                            } else {
+                              updated.remove(app.packageName);
+                            }
+                            _applyGuardedUpdate(sp, s.copyWith(monitoredApps: updated));
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
               ),
             ),
 

@@ -96,6 +96,26 @@ class AuthService {
     return AuthResult.fromJson(response);
   }
 
+  Future<AuthResult> requestPasswordResetOtp({required String email}) async {
+    final response = await BackendApi.postJson('/api/request_password_reset_otp.php', {
+      'email': email,
+    });
+    return AuthResult.fromJson(response);
+  }
+
+  Future<AuthResult> resetPasswordWithOtp({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    final response = await BackendApi.postJson('/api/reset_password.php', {
+      'email': email,
+      'code': code,
+      'newPassword': newPassword,
+    });
+    return AuthResult.fromJson(response);
+  }
+
   Future<void> logout() async {
     final token = await getToken();
     if (token != null && token.isNotEmpty) {
