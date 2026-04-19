@@ -32,6 +32,20 @@ class SettingsService {
     await prefs.setBool(AppConstants.keyIsOnboarded, true);
   }
 
+  Future<bool> inferRemoteOnboardingComplete() async {
+    final remote = await _loadRemoteSettings();
+    if (remote == null) {
+      return false;
+    }
+    return looksLikeOnboardedProfile(remote);
+  }
+
+  static bool looksLikeOnboardedProfile(UserSettings settings) {
+    final hasName = settings.userName.trim().isNotEmpty;
+    final hasSelectedApps = settings.monitoredApps.isNotEmpty;
+    return hasName || hasSelectedApps;
+  }
+
   // ── SETTINGS LOAD / SAVE ────────────────────────────────
 
   Future<UserSettings> loadSettings() async {

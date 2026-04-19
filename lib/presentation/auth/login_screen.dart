@@ -67,6 +67,7 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     bool ok = false;
+    bool remotelyOnboarded = false;
     String? emailForOtp = _emailCtrl.text.trim().toLowerCase();
     if (_tab == AuthTab.login) {
       final result = await _auth.login(
@@ -94,6 +95,10 @@ class _LoginScreenState extends State<LoginScreen> {
         setState(() => _error = result.message.isNotEmpty ? result.message : 'Wrong credentials. Check email/password.');
         return;
       }
+
+      if (result.settings != null) {
+        remotelyOnboarded = SettingsService.looksLikeOnboardedProfile(result.settings!);
+      }
     } else {
       final result = await _auth.register(
         email: _emailCtrl.text,
@@ -117,7 +122,13 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    final onboarded = await SettingsService().isOnboarded();
+    final settingsService = SettingsService();
+    var onboarded = await settingsService.isOnboarded();
+    if (!onboarded && remotelyOnboarded) {
+      await settingsService.completeOnboarding();
+      onboarded = true;
+    }
+
     if (!mounted) return;
 
     Navigator.pushReplacementNamed(context, onboarded ? '/home' : '/onboarding');

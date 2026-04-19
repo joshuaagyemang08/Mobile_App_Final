@@ -21,7 +21,7 @@ import 'presentation/onboarding/onboarding_screen.dart';
 import 'presentation/dashboard/home_shell.dart';
 import 'presentation/lock/lock_screen.dart';
 import 'presentation/settings/forgot_pin_screen.dart';
-import 'presentation/settings/settings_screen.dart';
+import 'presentation/settings/settings_access_gate_screen.dart';
 import 'presentation/profile/feedback_screen.dart';
 import 'presentation/profile/notifications_screen.dart';
 import 'core/widgets/focuslock_brand.dart';
@@ -96,7 +96,7 @@ class FocusLockApp extends StatelessWidget {
           '/permissions': (_) => const PermissionsScreen(),
           '/lock': (_) => const LockScreen(),
           '/forgot-pin': (_) => const ForgotPinScreen(),
-          '/settings-jump': (_) => const SettingsScreen(),
+          '/settings-jump': (_) => const SettingsAccessGateScreen(),
           '/feedback': (_) => const FeedbackScreen(),
           '/notifications': (_) => const NotificationsScreen(),
         },

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/time_utils.dart';
+import '../../core/widgets/pin_prompt_dialog.dart';
 import '../../core/widgets/scene_background.dart';
 import '../../providers/usage_provider.dart';
 import '../../providers/settings_provider.dart';
@@ -119,6 +120,13 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _useUnlockNow() async {
+    final pinOk = await showPinPrompt(
+      context,
+      title: 'Unlock Protected',
+      subtitle: 'Enter your PIN before spending an unlock.',
+    );
+    if (!mounted || !pinOk) return;
+
     setState(() {
       _isVerifying = true;
       _codeError = null;

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/services/tracking_service.dart';
+import '../../core/widgets/pin_prompt_dialog.dart';
 import '../../providers/usage_provider.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../history/history_screen.dart';
@@ -18,6 +19,7 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _currentIndex = 0;
+  bool _settingsPromptOpen = false;
 
   final _pages = const [
     DashboardScreen(),
@@ -61,6 +63,21 @@ class _HomeShellState extends State<HomeShell> {
     super.dispose();
   }
 
+  Future<void> _openSettingsWithPin() async {
+    if (_settingsPromptOpen) return;
+    _settingsPromptOpen = true;
+
+    final ok = await showPinPrompt(
+      context,
+      title: 'Unlock Settings',
+      subtitle: 'Enter your PIN before opening Settings.',
+    );
+
+    _settingsPromptOpen = false;
+    if (!ok || !mounted) return;
+    setState(() => _currentIndex = 2);
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -88,8 +105,8 @@ class _HomeShellState extends State<HomeShell> {
               data: NavigationBarThemeData(
                 backgroundColor: Colors.transparent,
                 indicatorColor: AppTheme.primary.withOpacity(0.12),
-                labelTextStyle: MaterialStateProperty.resolveWith((states) {
-                  final selected = states.contains(MaterialState.selected);
+                labelTextStyle: WidgetStateProperty.resolveWith((states) {
+                  final selected = states.contains(WidgetState.selected);
                   return TextStyle(
                     color: selected ? AppTheme.primary : unselected,
                     fontSize: 12,
@@ -99,7 +116,13 @@ class _HomeShellState extends State<HomeShell> {
               ),
               child: NavigationBar(
                 selectedIndex: _currentIndex,
-                onDestinationSelected: (i) => setState(() => _currentIndex = i),
+                onDestinationSelected: (i) {
+                  if (i == 2 && _currentIndex != 2) {
+                    _openSettingsWithPin();
+                    return;
+                  }
+                  setState(() => _currentIndex = i);
+                },
                 height: 70,
                 destinations: const [
                   NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),

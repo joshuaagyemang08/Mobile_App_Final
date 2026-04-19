@@ -6,6 +6,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/time_utils.dart';
 import '../../core/constants/social_apps.dart';
 import '../../core/widgets/scene_background.dart';
+import '../../core/widgets/pin_prompt_dialog.dart';
 import '../../data/models/user_settings.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/usage_provider.dart';
@@ -338,6 +339,13 @@ class _StatsRow extends StatelessWidget {
       );
       return;
     }
+
+    final pinOk = await showPinPrompt(
+      context,
+      title: 'Unlock Protected',
+      subtitle: 'Enter your PIN before using one of today\'s unlocks.',
+    );
+    if (!context.mounted || !pinOk) return;
 
     final confirmed = await showDialog<bool>(
       context: context,

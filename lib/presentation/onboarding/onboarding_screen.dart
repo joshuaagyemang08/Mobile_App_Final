@@ -551,10 +551,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   String _formatDurationLong(int minutes) {
-    if (minutes < 60) return '${minutes} min';
+    if (minutes < 60) return '$minutes min';
     final h = minutes ~/ 60;
     final m = minutes % 60;
-    return m == 0 ? '${h}h 0m (${minutes} min)' : '${h}h ${m}m (${minutes} min)';
+    return m == 0 ? '${h}h 0m ($minutes min)' : '${h}h ${m}m ($minutes min)';
   }
 
   Widget _timePickerCard({
@@ -793,7 +793,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   obscureText: !_pinVisible,
                   keyboardType: TextInputType.number,
                   maxLength: AppConstants.pinLength,
-                  decoration: InputDecoration(labelText: 'Confirm PIN (${AppConstants.pinLength} digits)'),
+                  decoration: const InputDecoration(labelText: 'Confirm PIN (${AppConstants.pinLength} digits)'),
                 ),
               ],
             ),

@@ -20,7 +20,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _pinVerified = false;
   String _email = '';
   Future<GuardrailStatus>? _guardrailFuture;
 
@@ -212,7 +211,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _guardrailFuture = context.read<SettingsProvider>().getGuardrailStatus();
     _loadEmail();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _askForPin());
   }
 
   Future<void> _loadEmail() async {
@@ -221,25 +219,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _email = email ?? 'focuslock.user@example.com');
   }
 
-  Future<void> _askForPin() async {
-    final result = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const _PinGateDialog(),
-    );
-    if (result == true) {
-      setState(() => _pinVerified = true);
-    } else {
-      if (mounted) Navigator.pop(context);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    if (!_pinVerified) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
     final sp = context.watch<SettingsProvider>();
     final s = sp.settings;
     final themeProvider = context.watch<ThemeProvider>();
@@ -945,85 +926,6 @@ class _StepperTile extends StatelessWidget {
 }
 
 // ── DIALOGS ───────────────────────────────────────────────
-
-class _PinGateDialog extends StatefulWidget {
-  const _PinGateDialog();
-
-  @override
-  State<_PinGateDialog> createState() => _PinGateDialogState();
-}
-
-class _PinGateDialogState extends State<_PinGateDialog> {
-  final _pinCtrl = TextEditingController();
-  String? _error;
-  bool _showRecovery = false;
-  int _attempts = 0;
-
-  @override
-  void dispose() {
-    _pinCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _verify() async {
-    final sp = context.read<SettingsProvider>();
-    final ok = await sp.verifyPin(_pinCtrl.text);
-    if (ok) {
-      if (mounted) Navigator.pop(context, true);
-    } else {
-      _attempts++;
-      setState(() {
-        _error = 'Incorrect PIN.';
-        _pinCtrl.clear();
-        if (_attempts >= 3) _showRecovery = true;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-      backgroundColor: Theme.of(context).cardColor,
-        title: const Text('Enter PIN to access Settings'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _pinCtrl,
-              obscureText: true,
-              keyboardType: TextInputType.number,
-              maxLength: AppConstants.pinLength,
-              autofocus: true,
-              decoration: InputDecoration(
-                labelText: 'PIN (6 digits)',
-                errorText: _error,
-                counterText: '',
-              ),
-              onSubmitted: (_) => _verify(),
-            ),
-            if (_showRecovery) ...[
-              const SizedBox(height: 12),
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context, false);
-                  Future.microtask(() => Navigator.pushNamed(context, '/forgot-pin'));
-                },
-                child: const Text('Forgot PIN? Recover via email OTP',
-                    style: TextStyle(color: AppTheme.warning, fontSize: 12)),
-              ),
-            ],
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
-          ElevatedButton(
-              onPressed: _verify,
-              style: ElevatedButton.styleFrom(minimumSize: const Size(80, 40)),
-              child: const Text('Unlock')),
-        ],
-      );
-}
 
 class _ChangePinDialog extends StatefulWidget {
   final SettingsProvider sp;
