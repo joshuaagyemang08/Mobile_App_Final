@@ -2,7 +2,7 @@ class AppConstants {
   AppConstants._();
 
   // App mode flags
-  static const bool enableTracking = false;
+  static const bool enableTracking = true;
 
   // SharedPreferences keys
   static const String keyIsOnboarded = 'is_onboarded';

@@ -1,4 +1,5 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter/services.dart';
 import '../../core/constants/app_constants.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
@@ -36,9 +37,13 @@ class NotificationService {
   }
 
   Future<void> requestPermission() async {
-    await _plugin
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-        ?.requestNotificationsPermission();
+    final android = _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    await android?.requestNotificationsPermission();
+    try {
+      await android?.requestExactAlarmsPermission();
+    } catch (_) {
+      // Some Android versions or OEM implementations may not expose exact alarm requests.
+    }
   }
 
   Future<void> showApproaching75(int remainingMinutes) async {
@@ -80,45 +85,64 @@ class NotificationService {
     final wake = _nextInstance(hour: wakeHour);
     final sleep = _nextInstance(hour: sleepHour);
 
-    await _plugin.zonedSchedule(
+    const details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'focuslock_channel',
+        'FocusLock Alerts',
+        channelDescription: 'Usage limit and lock notifications',
+        importance: Importance.high,
+        priority: Priority.high,
+        icon: '@mipmap/ic_launcher',
+      ),
+    );
+
+    await _scheduleDaily(
       8101,
       'Good morning',
       'Start your day with intention, not endless scrolling.',
       wake,
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'focuslock_channel',
-          'FocusLock Alerts',
-          channelDescription: 'Usage limit and lock notifications',
-          importance: Importance.high,
-          priority: Priority.high,
-          icon: '@mipmap/ic_launcher',
-        ),
-      ),
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-      matchDateTimeComponents: DateTimeComponents.time,
+      details,
     );
 
-    await _plugin.zonedSchedule(
+    await _scheduleDaily(
       8102,
       'Wind down reminder',
       'Your sleep window is near. Time to unplug.',
       sleep,
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'focuslock_channel',
-          'FocusLock Alerts',
-          channelDescription: 'Usage limit and lock notifications',
-          importance: Importance.high,
-          priority: Priority.high,
-          icon: '@mipmap/ic_launcher',
-        ),
-      ),
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-      matchDateTimeComponents: DateTimeComponents.time,
+      details,
     );
+  }
+
+  Future<void> _scheduleDaily(
+    int id,
+    String title,
+    String body,
+    tz.TZDateTime at,
+    NotificationDetails details,
+  ) async {
+    try {
+      await _plugin.zonedSchedule(
+        id,
+        title,
+        body,
+        at,
+        details,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+        matchDateTimeComponents: DateTimeComponents.time,
+      );
+    } on PlatformException {
+      await _plugin.zonedSchedule(
+        id,
+        title,
+        body,
+        at,
+        details,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+        matchDateTimeComponents: DateTimeComponents.time,
+      );
+    }
   }
 
   tz.TZDateTime _nextInstance({required int hour}) {

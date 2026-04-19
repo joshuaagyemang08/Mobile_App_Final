@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/focuslock_brand.dart';
 import '../../core/widgets/scene_background.dart';
@@ -23,6 +25,7 @@ class VerifyEmailOtpScreen extends StatefulWidget {
 }
 
 class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
+  static const _permissionsChannel = MethodChannel('com.focuslock.app/permissions');
   final _codeCtrl = TextEditingController();
   final _auth = AuthService();
   bool _loading = false;
@@ -45,6 +48,17 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
   void dispose() {
     _codeCtrl.dispose();
     super.dispose();
+  }
+
+  Future<bool> _hasBlockingPermissions() async {
+    try {
+      final usage = await _permissionsChannel.invokeMethod<bool>('checkUsageStatsPermission') ?? false;
+      final overlay = await _permissionsChannel.invokeMethod<bool>('checkOverlayPermission') ?? false;
+      final accessibility = await _permissionsChannel.invokeMethod<bool>('checkAccessibilityPermission') ?? false;
+      return usage && overlay && accessibility;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> _sendCode() async {
@@ -123,6 +137,11 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
 
     final onboarded = await SettingsService().isOnboarded();
     if (!mounted) return;
+
+    if (AppConstants.enableTracking && !(await _hasBlockingPermissions())) {
+      Navigator.pushNamedAndRemoveUntil(context, '/permissions', (route) => false);
+      return;
+    }
 
     Navigator.pushNamedAndRemoveUntil(context, onboarded ? '/home' : '/onboarding', (route) => false);
   }

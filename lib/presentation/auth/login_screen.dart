@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/focuslock_brand.dart';
 import '../../core/widgets/scene_background.dart';
@@ -19,6 +21,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  static const _permissionsChannel = MethodChannel('com.focuslock.app/permissions');
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
@@ -42,6 +45,17 @@ class _LoginScreenState extends State<LoginScreen> {
     _passwordCtrl.dispose();
     _confirmCtrl.dispose();
     super.dispose();
+  }
+
+  Future<bool> _hasBlockingPermissions() async {
+    try {
+      final usage = await _permissionsChannel.invokeMethod<bool>('checkUsageStatsPermission') ?? false;
+      final overlay = await _permissionsChannel.invokeMethod<bool>('checkOverlayPermission') ?? false;
+      final accessibility = await _permissionsChannel.invokeMethod<bool>('checkAccessibilityPermission') ?? false;
+      return usage && overlay && accessibility;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> _submit() async {
@@ -130,6 +144,11 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     if (!mounted) return;
+
+    if (AppConstants.enableTracking && !(await _hasBlockingPermissions())) {
+      Navigator.pushReplacementNamed(context, '/permissions');
+      return;
+    }
 
     Navigator.pushReplacementNamed(context, onboarded ? '/home' : '/onboarding');
   }

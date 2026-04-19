@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
+import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/time_utils.dart';
 import '../../core/constants/social_apps.dart';
@@ -20,12 +23,49 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   Timer? _refreshTimer;
+  Future<_TrackingStatus>? _trackingStatusFuture;
+
+  static const MethodChannel _permissionsChannel = MethodChannel('com.focuslock.app/permissions');
 
   @override
   void initState() {
     super.initState();
+    _trackingStatusFuture = _loadTrackingStatus();
     _refresh();
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) => _refresh());
+  }
+
+  Future<_TrackingStatus> _loadTrackingStatus() async {
+    if (!AppConstants.enableTracking) {
+      return const _TrackingStatus(
+        enabled: false,
+        running: false,
+        usage: false,
+        overlay: false,
+        accessibility: false,
+      );
+    }
+
+    final running = await FlutterForegroundTask.isRunningService;
+    bool usage = false;
+    bool overlay = false;
+    bool accessibility = false;
+
+    try {
+      usage = await _permissionsChannel.invokeMethod<bool>('checkUsageStatsPermission') ?? false;
+      overlay = await _permissionsChannel.invokeMethod<bool>('checkOverlayPermission') ?? false;
+      accessibility = await _permissionsChannel.invokeMethod<bool>('checkAccessibilityPermission') ?? false;
+    } catch (_) {
+      // Leave permissions as false if the platform channel is unavailable.
+    }
+
+    return _TrackingStatus(
+      enabled: true,
+      running: running,
+      usage: usage,
+      overlay: overlay,
+      accessibility: accessibility,
+    );
   }
 
   Future<void> _refresh() async {
@@ -35,6 +75,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           settings.monitoredApps,
           settings.dailyLimitMinutes,
         );
+    if (mounted) {
+      setState(() {
+        _trackingStatusFuture = _loadTrackingStatus();
+      });
+    }
   }
 
   @override
@@ -74,35 +119,178 @@ class _DashboardScreenState extends State<DashboardScreen> {
         body: RefreshIndicator(
           onRefresh: _refresh,
           color: AppTheme.primary,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-            children: [
-              _HeaderCard(usage: usage, settings: settings),
-              const SizedBox(height: 16),
-              _UsageRingCard(usage: usage, settings: settings),
-              const SizedBox(height: 16),
-              _StatsRow(usage: usage, settings: settings),
-              const SizedBox(height: 16),
-              if (usage.todayEntries.isNotEmpty) ...[
-                const _SectionHeader('App Breakdown'),
-                const SizedBox(height: 8),
-                ...usage.todayEntries.map((e) {
-                  final percent = usage.totalMinutesToday > 0 ? e.durationMinutes / usage.totalMinutesToday : 0.0;
-                  final app = SocialApps.fromPackage(e.packageName);
-                  return _AppBar(
-                    icon: app?.icon ?? Icons.apps_rounded,
-                    name: e.appName,
-                    minutes: e.durationMinutes,
-                    percent: percent,
-                  );
-                }),
-              ] else
-                _EmptyApps(),
-              const SizedBox(height: 16),
-              _TipsCard(percent: usage.usagePercent),
-            ],
+          child: FutureBuilder<_TrackingStatus>(
+            future: _trackingStatusFuture,
+            builder: (context, snap) {
+              final status = snap.data;
+              return ListView(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                children: [
+                  if (status != null) ...[
+                    _TrackingStatusCard(status: status),
+                    const SizedBox(height: 16),
+                  ],
+                  _HeaderCard(usage: usage, settings: settings),
+                  const SizedBox(height: 16),
+                  _UsageRingCard(usage: usage, settings: settings),
+                  const SizedBox(height: 16),
+                  _StatsRow(usage: usage, settings: settings),
+                  const SizedBox(height: 16),
+                  if (usage.todayEntries.isNotEmpty) ...[
+                    const _SectionHeader('App Breakdown'),
+                    const SizedBox(height: 8),
+                    ...usage.todayEntries.map((e) {
+                      final percent = usage.totalMinutesToday > 0 ? e.durationMinutes / usage.totalMinutesToday : 0.0;
+                      final app = SocialApps.fromPackage(e.packageName);
+                      return _AppBar(
+                        icon: app?.icon ?? Icons.apps_rounded,
+                        name: e.appName,
+                        minutes: e.durationMinutes,
+                        percent: percent,
+                      );
+                    }),
+                  ] else
+                    _EmptyApps(),
+                  const SizedBox(height: 16),
+                  _TipsCard(percent: usage.usagePercent),
+                ],
+              );
+            },
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _TrackingStatus {
+  final bool enabled;
+  final bool running;
+  final bool usage;
+  final bool overlay;
+  final bool accessibility;
+
+  const _TrackingStatus({
+    required this.enabled,
+    required this.running,
+    required this.usage,
+    required this.overlay,
+    required this.accessibility,
+  });
+
+  bool get active => enabled && running && usage && overlay && accessibility;
+}
+
+class _TrackingStatusCard extends StatelessWidget {
+  final _TrackingStatus status;
+
+  const _TrackingStatusCard({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final surface = Theme.of(context).cardColor;
+    final border = Theme.of(context).dividerColor;
+    final active = status.active;
+    final color = !status.enabled
+        ? AppTheme.textMuted
+        : active
+            ? AppTheme.success
+            : AppTheme.warning;
+    final label = !status.enabled
+        ? 'Tracking is turned off'
+        : active
+            ? 'Tracking is active'
+            : 'Tracking needs permissions';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: border),
+        boxShadow: const [
+          BoxShadow(color: AppTheme.shadow, blurRadius: 14, offset: Offset(0, 8)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(active ? Icons.sensors_rounded : Icons.shield_outlined, color: color),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Tracking status', style: Theme.of(context).textTheme.bodySmall),
+                    Text(label, style: Theme.of(context).textTheme.titleMedium?.copyWith(color: color)),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  active ? 'Active' : 'Needs setup',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: color, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _statusChip(context, 'Usage', status.usage),
+              _statusChip(context, 'Overlay', status.overlay),
+              _statusChip(context, 'Accessibility', status.accessibility),
+              _statusChip(context, 'Foreground service', status.running),
+            ],
+          ),
+          if (!active) ...[
+            const SizedBox(height: 12),
+            Text(
+              'Grant the missing permissions to keep usage monitoring and app blocking running.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => Navigator.pushNamed(context, '/permissions'),
+                icon: const Icon(Icons.lock_open_rounded, size: 18),
+                label: const Text('Open permissions'),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _statusChip(BuildContext context, String label, bool ok) {
+    final color = ok ? AppTheme.success : AppTheme.danger;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        '$label: ${ok ? 'On' : 'Off'}',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: color, fontWeight: FontWeight.w700),
       ),
     );
   }

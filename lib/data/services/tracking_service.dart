@@ -24,6 +24,19 @@ class TrackingTaskHandler extends TaskHandler {
   bool _sent75 = false;
   bool _sent90 = false;
 
+  bool _isWithinScheduleWindow({
+    required DateTime now,
+    required int startHour,
+    required int endHour,
+  }) {
+    final hour = now.hour;
+    if (startHour == endHour) return true;
+    if (startHour < endHour) {
+      return hour >= startHour && hour < endHour;
+    }
+    return hour >= startHour || hour < endHour;
+  }
+
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
     await _notif.init();
@@ -43,8 +56,25 @@ class TrackingTaskHandler extends TaskHandler {
       await prefs.setString(AppConstants.keyLastDailyResetDate, today);
     }
 
-    final isLocked = await _settings.isLocked();
-    if (isLocked) return;
+    final lockScheduleEnabled = prefs.getBool(AppConstants.keyLockScheduleEnabled) ?? false;
+    final scheduleStartHour = prefs.getInt(AppConstants.keyScheduleStartHour) ?? 8;
+    final scheduleEndHour = prefs.getInt(AppConstants.keyScheduleEndHour) ?? 22;
+    final inScheduledWindow = lockScheduleEnabled &&
+        _isWithinScheduleWindow(
+          now: DateTime.now(),
+          startHour: scheduleStartHour,
+          endHour: scheduleEndHour,
+        );
+
+    var isLocked = await _settings.isLocked();
+    if (inScheduledWindow) {
+      if (!isLocked) {
+        final cooldownMinutes = prefs.getInt(AppConstants.keyCooldownMinutes) ?? AppConstants.defaultCooldownMinutes;
+        await _settings.setLocked(true, cooldownMinutes: cooldownMinutes);
+        FlutterForegroundTask.sendDataToMain({'action': 'lock'});
+      }
+      return;
+    }
 
     // Get usage stats for today
     final now = DateTime.now();
@@ -58,9 +88,21 @@ class TrackingTaskHandler extends TaskHandler {
     }
 
     final appsJson = prefs.getString(AppConstants.keyMonitoredApps);
-    if (appsJson == null) return;
+    if (appsJson == null) {
+      if (isLocked) {
+        await _settings.setLocked(false);
+        FlutterForegroundTask.sendDataToMain({'action': 'update', 'totalMinutes': 0});
+      }
+      return;
+    }
     final monitoredApps = List<String>.from(jsonDecode(appsJson));
-    if (monitoredApps.isEmpty) return;
+    if (monitoredApps.isEmpty) {
+      if (isLocked) {
+        await _settings.setLocked(false);
+        FlutterForegroundTask.sendDataToMain({'action': 'update', 'totalMinutes': 0});
+      }
+      return;
+    }
 
     // Calculate cumulative usage across all monitored apps
     int totalMinutes = 0;
@@ -97,6 +139,10 @@ class TrackingTaskHandler extends TaskHandler {
       await _notif.showLimitReached();
       FlutterForegroundTask.sendDataToMain({'action': 'lock'});
     } else {
+      if (isLocked) {
+        await _settings.setLocked(false);
+        isLocked = false;
+      }
       // Push usage updates back to the UI isolate.
       FlutterForegroundTask.sendDataToMain({
         'action': 'update',

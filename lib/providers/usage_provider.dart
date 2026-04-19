@@ -3,6 +3,7 @@ import 'package:app_usage/app_usage.dart';
 import '../data/services/settings_service.dart';
 import '../data/services/database_service.dart';
 import '../data/models/app_usage_model.dart';
+import '../data/models/user_settings.dart';
 import '../core/constants/app_constants.dart';
 import '../core/constants/social_apps.dart';
 import '../core/utils/time_utils.dart';
@@ -30,16 +31,56 @@ class UsageProvider extends ChangeNotifier {
   List<AppUsageEntry> get todayEntries => _todayEntries;
   bool get isLoading => _isLoading;
 
+  bool _isWithinScheduleWindow(UserSettings settings, DateTime now) {
+    if (!settings.lockScheduleEnabled) return false;
+    final start = settings.scheduleStartHour;
+    final end = settings.scheduleEndHour;
+    final hour = now.hour;
+
+    if (start == end) return true;
+    if (start < end) return hour >= start && hour < end;
+    return hour >= start || hour < end;
+  }
+
+  Future<void> _syncScheduledLock(UserSettings settings) async {
+    final inScheduledWindow = _isWithinScheduleWindow(settings, DateTime.now());
+
+    if (inScheduledWindow) {
+      if (!_isLocked) {
+        await _settingsService.setLocked(true, cooldownMinutes: settings.cooldownMinutes);
+        _isLocked = true;
+        _cooldownEndTime = await _settingsService.getCooldownEndTime();
+        _isCooldownExpired = await _settingsService.isCooldownExpired();
+      }
+      return;
+    }
+
+    if (!_isLocked) return;
+
+    final unlocksUsed = await _settingsService.getTodayUnlockCount();
+    final effectiveLimit = settings.dailyLimitMinutes + (unlocksUsed * settings.extraUnlockMinutes);
+    final shouldStayLocked = effectiveLimit > 0 && _totalMinutesToday >= effectiveLimit;
+
+    if (!shouldStayLocked) {
+      await _settingsService.setLocked(false);
+      _isLocked = false;
+      _cooldownEndTime = null;
+      _isCooldownExpired = true;
+    }
+  }
+
   Future<void> refresh(List<String> monitoredApps, int limitMinutes) async {
     _limitMinutes = limitMinutes;
+    final settings = await _settingsService.loadSettings();
 
     if (!AppConstants.enableTracking) {
-      _isLocked = false;
-      _isCooldownExpired = true;
-      _cooldownEndTime = null;
+      _isLocked = await _settingsService.isLocked();
+      _cooldownEndTime = await _settingsService.getCooldownEndTime();
+      _isCooldownExpired = await _settingsService.isCooldownExpired();
       _todayEntries = _buildDesignEntries(monitoredApps);
       _totalMinutesToday = _todayEntries.fold(0, (s, e) => s + e.durationMinutes);
       _effectiveLimitMinutes = _limitMinutes;
+      await _syncScheduledLock(settings);
       _isLoading = false;
       notifyListeners();
       return;
@@ -59,6 +100,7 @@ class UsageProvider extends ChangeNotifier {
     }
 
     await _refreshEffectiveLimit();
+    await _syncScheduledLock(settings);
     await _applyLockIfLimitReached();
 
     _isLoading = false;

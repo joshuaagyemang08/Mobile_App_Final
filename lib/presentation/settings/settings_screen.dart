@@ -377,6 +377,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
               subtitle: 'Manage lock windows and daily wake/sleep reminders',
               child: Column(
                 children: [
+                  Builder(
+                    builder: (context) {
+                      final now = DateTime.now();
+                      final active = _isWithinScheduleWindow(s, now);
+                      final label = s.lockScheduleEnabled
+                          ? (active ? 'Inside scheduled lock window' : 'Outside scheduled lock window')
+                          : 'Scheduled lock is off';
+                      final color = s.lockScheduleEnabled
+                          ? (active ? AppTheme.danger : AppTheme.success)
+                          : AppTheme.textMuted;
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: color.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(color: color.withOpacity(0.18)),
+                            ),
+                            child: Text(
+                              label,
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: color,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                   _Card(
                     child: Column(
                       children: [
@@ -545,6 +579,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final display = h == 0 ? 12 : (h > 12 ? h - 12 : h);
     final period = h >= 12 ? 'PM' : 'AM';
     return '$display:00 $period';
+  }
+
+  bool _isWithinScheduleWindow(UserSettings settings, DateTime now) {
+    if (!settings.lockScheduleEnabled) return false;
+    final start = settings.scheduleStartHour;
+    final end = settings.scheduleEndHour;
+    final hour = now.hour;
+
+    if (start == end) return true;
+    if (start < end) return hour >= start && hour < end;
+    return hour >= start || hour < end;
   }
 
   void _confirmReset(BuildContext ctx, SettingsProvider sp) {

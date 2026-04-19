@@ -135,11 +135,6 @@ class _SplashRouterState extends State<_SplashRouter> {
     final settingsService = SettingsService();
     final onboarded = await settingsService.isOnboarded();
 
-    if (!onboarded) {
-      Navigator.pushReplacementNamed(context, '/onboarding');
-      return;
-    }
-
     if (AppConstants.enableTracking) {
       final hasPermissions = await _hasBlockingPermissions();
       if (!hasPermissions) {
@@ -148,11 +143,23 @@ class _SplashRouterState extends State<_SplashRouter> {
       }
     }
 
+    if (!onboarded) {
+      Navigator.pushReplacementNamed(context, '/onboarding');
+      return;
+    }
+
     // Load settings into provider
     await context.read<SettingsProvider>().load();
 
-    // Start accelerometer pickup detection if enabled
     final settings = context.read<SettingsProvider>().settings;
+
+    // Ensure wake/sleep reminders are restored after app restarts.
+    await NotificationService().scheduleWakeSleepReminders(
+      wakeHour: settings.wakeHour,
+      sleepHour: settings.sleepHour,
+    );
+
+    // Start accelerometer pickup detection if enabled
     if (AppConstants.enableTracking && settings.accelerometerEnabled) {
       PickupDetector().start();
     }
