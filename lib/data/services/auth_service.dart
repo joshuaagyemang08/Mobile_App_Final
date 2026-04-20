@@ -3,6 +3,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../core/constants/app_constants.dart';
 import '../models/auth_result.dart';
 import 'backend_api.dart';
+import 'settings_service.dart';
 
 class AuthService {
   static final AuthService _instance = AuthService._internal();
@@ -37,6 +38,7 @@ class AuthService {
   }
 
   Future<AuthResult> login({required String email, required String password}) async {
+    final previousEmail = await getUserEmail();
     final response = await BackendApi.postJson('/api/auth_login.php', {
       'email': email,
       'password': password,
@@ -44,11 +46,17 @@ class AuthService {
 
     final result = AuthResult.fromJson(response);
     if (result.success && result.token != null) {
+      final nextEmail = (result.email ?? email.trim().toLowerCase()).trim().toLowerCase();
+      if (previousEmail != null && previousEmail.trim().toLowerCase() != nextEmail) {
+        await SettingsService().clearLocalUserStateForAccountSwitch();
+      }
+
       await _storeSession(
         token: result.token!,
-        email: result.email ?? email.trim().toLowerCase(),
+        email: nextEmail,
         displayName: result.settings?.userName,
       );
+      await SettingsService().syncRemoteLockState();
     }
     return result;
   }
@@ -58,6 +66,7 @@ class AuthService {
     required String code,
     required String purpose,
   }) async {
+    final previousEmail = await getUserEmail();
     final response = await BackendApi.postJson('/api/verify_otp.php', {
       'email': email,
       'code': code,
@@ -66,11 +75,17 @@ class AuthService {
 
     final result = AuthResult.fromJson(response);
     if (result.success && result.token != null) {
+      final nextEmail = (result.email ?? email.trim().toLowerCase()).trim().toLowerCase();
+      if (previousEmail != null && previousEmail.trim().toLowerCase() != nextEmail) {
+        await SettingsService().clearLocalUserStateForAccountSwitch();
+      }
+
       await _storeSession(
         token: result.token!,
-        email: result.email ?? email.trim().toLowerCase(),
+        email: nextEmail,
         displayName: result.settings?.userName,
       );
+      await SettingsService().syncRemoteLockState();
     }
     return result;
   }
@@ -125,6 +140,8 @@ class AuthService {
         // Ignore network errors during sign out; the local session is still cleared.
       }
     }
+    // Clear device-local user state on logout so next user doesn't see cached settings
+    await SettingsService().clearLocalUserStateForAccountSwitch();
     await _clearSession();
   }
 

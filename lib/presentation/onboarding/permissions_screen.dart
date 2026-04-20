@@ -84,7 +84,15 @@ class _PermissionsScreenState extends State<PermissionsScreen> with WidgetsBindi
   Future<void> _proceed() async {
     if (!_allGranted) return;
 
-    final onboarded = await SettingsService().isOnboarded();
+    final settingsService = SettingsService();
+    var onboarded = await settingsService.isOnboarded();
+    if (!onboarded) {
+      final remoteOnboarded = await settingsService.inferRemoteOnboardingComplete();
+      if (remoteOnboarded) {
+        await settingsService.completeOnboarding();
+        onboarded = true;
+      }
+    }
     if (!mounted) return;
 
     final args = ModalRoute.of(context)?.settings.arguments;

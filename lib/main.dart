@@ -132,7 +132,14 @@ class _SplashRouterState extends State<_SplashRouter> {
     }
 
     final settingsService = SettingsService();
-    final onboarded = await settingsService.isOnboarded();
+    var onboarded = await settingsService.isOnboarded();
+    if (!onboarded) {
+      final remoteOnboarded = await settingsService.inferRemoteOnboardingComplete();
+      if (remoteOnboarded) {
+        await settingsService.completeOnboarding();
+        onboarded = true;
+      }
+    }
 
     if (AppConstants.enableTracking) {
       final hasPermissions = await _hasBlockingPermissions();

@@ -58,6 +58,9 @@ CREATE TABLE user_settings (
   sleep_hour INT NOT NULL DEFAULT 23,
   sleep_minute INT NOT NULL DEFAULT 0,
   notifications_enabled TINYINT(1) NOT NULL DEFAULT 1,
+  unlocks_used_today INT NOT NULL DEFAULT 0,
+  unlock_day_key CHAR(10) DEFAULT NULL,
+  cooldown_end_at DATETIME DEFAULT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_user_settings_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE

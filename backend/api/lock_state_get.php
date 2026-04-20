@@ -9,18 +9,9 @@ $pdo = focuslock_db();
 $auth = focuslock_authenticate($pdo);
 
 $userId = (int) $auth['user_id'];
-$user = [
-    'id' => $userId,
-    'email' => (string) $auth['email'],
-    'displayName' => (string) ($auth['display_name'] ?? ''),
-];
 $settings = focuslock_sync_unlock_state($pdo, $userId);
-$settingsPayload = focuslock_settings_payload($settings);
-$settingsPayload['userName'] = $user['displayName'];
 
 focuslock_send_json(200, [
     'success' => true,
-    'user' => $user,
-    'settings' => $settingsPayload,
     'lockState' => focuslock_lock_state_payload($settings),
 ]);

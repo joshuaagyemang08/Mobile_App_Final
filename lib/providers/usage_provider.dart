@@ -19,6 +19,7 @@ class UsageProvider extends ChangeNotifier {
   int _todayPickupCount = 0;
   bool _isLocked = false;
   bool _isCooldownExpired = false;
+  String? _lastUnlockError;
   DateTime? _cooldownEndTime;
   List<AppUsageEntry> _todayEntries = [];
   bool _isLoading = true;
@@ -30,6 +31,7 @@ class UsageProvider extends ChangeNotifier {
   int get todayPickupCount => _todayPickupCount;
   bool get isLocked => _isLocked;
   bool get isCooldownExpired => _isCooldownExpired;
+  String? get lastUnlockError => _lastUnlockError;
   DateTime? get cooldownEndTime => _cooldownEndTime;
   List<AppUsageEntry> get todayEntries => _todayEntries;
   bool get isLoading => _isLoading;
@@ -74,6 +76,7 @@ class UsageProvider extends ChangeNotifier {
 
   Future<void> refresh(List<String> monitoredApps, int limitMinutes) async {
     _limitMinutes = limitMinutes;
+    await _settingsService.syncRemoteLockState();
     final settings = await _settingsService.loadSettings();
 
     if (!AppConstants.enableTracking) {
@@ -144,14 +147,22 @@ class UsageProvider extends ChangeNotifier {
     } catch (_) {}
   }
 
-  Future<void> unlock() async {
+  Future<bool> unlock() async {
+    _lastUnlockError = null;
+    final consumed = await _settingsService.useUnlock();
+    if (!consumed) {
+      _lastUnlockError = _settingsService.lastUnlockError ?? 'Unlock failed. Please try again.';
+      notifyListeners();
+      return false;
+    }
+
     await _settingsService.setLocked(false);
-    await _settingsService.incrementUnlockCount();
     _isLocked = false;
     _cooldownEndTime = null;
-    _isCooldownExpired = false;
+    _isCooldownExpired = true;
     await _refreshEffectiveLimit();
     notifyListeners();
+    return true;
   }
 
   Future<String?> getChallengeCode() => _settingsService.getChallengeCode();

@@ -90,4 +90,9 @@ class DatabaseService {
     final entries = await getUsageForDate(TimeUtils.todayKey());
     return entries.fold<int>(0, (sum, entry) => sum + entry.durationMinutes);
   }
+
+  Future<void> clearUsageHistory() async {
+    final database = await db;
+    await database.delete('usage_history');
+  }
 }

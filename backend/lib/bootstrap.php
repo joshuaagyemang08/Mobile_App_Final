@@ -162,6 +162,11 @@ function focuslock_ensure_settings(PDO $pdo, int $userId): void
     $insert->execute([$userId, $defaultApps]);
 }
 
+function focuslock_today_key(): string
+{
+    return (new DateTimeImmutable('now'))->format('Y-m-d');
+}
+
 function focuslock_fetch_settings(PDO $pdo, int $userId): array
 {
     focuslock_ensure_settings($pdo, $userId);
@@ -170,6 +175,60 @@ function focuslock_fetch_settings(PDO $pdo, int $userId): array
     $settings = $stmt->fetch();
 
     return $settings ?: [];
+}
+
+function focuslock_sync_unlock_state(PDO $pdo, int $userId, bool $forUpdate = false): array
+{
+    focuslock_ensure_settings($pdo, $userId);
+
+    $sql = 'SELECT * FROM user_settings WHERE user_id = ? LIMIT 1';
+    if ($forUpdate) {
+        $sql .= ' FOR UPDATE';
+    }
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([$userId]);
+    $row = $stmt->fetch();
+    if (!$row) {
+        return [];
+    }
+
+    $today = focuslock_today_key();
+    $unlockDayKey = (string) ($row['unlock_day_key'] ?? '');
+    if ($unlockDayKey !== $today) {
+        $reset = $pdo->prepare('UPDATE user_settings SET unlocks_used_today = 0, unlock_day_key = ? WHERE user_id = ?');
+        $reset->execute([$today, $userId]);
+        $row['unlocks_used_today'] = 0;
+        $row['unlock_day_key'] = $today;
+    }
+
+    return $row;
+}
+
+function focuslock_lock_state_payload(array $row): array
+{
+    $now = new DateTimeImmutable('now');
+    $cooldownEndAtRaw = $row['cooldown_end_at'] ?? null;
+    $cooldownEndAt = null;
+    $cooldownActive = false;
+    $cooldownRemainingSeconds = 0;
+
+    if (is_string($cooldownEndAtRaw) && trim($cooldownEndAtRaw) !== '') {
+        $cooldownEnd = new DateTimeImmutable($cooldownEndAtRaw);
+        $cooldownEndAt = $cooldownEnd->format(DateTimeInterface::ATOM);
+        if ($cooldownEnd > $now) {
+            $cooldownActive = true;
+            $cooldownRemainingSeconds = max(0, $cooldownEnd->getTimestamp() - $now->getTimestamp());
+        }
+    }
+
+    return [
+        'todayUnlockCount' => (int) ($row['unlocks_used_today'] ?? 0),
+        'unlockDayKey' => (string) ($row['unlock_day_key'] ?? focuslock_today_key()),
+        'cooldownEndAt' => $cooldownEndAt,
+        'cooldownActive' => $cooldownActive,
+        'cooldownRemainingSeconds' => $cooldownRemainingSeconds,
+    ];
 }
 
 function focuslock_settings_payload(array $row): array

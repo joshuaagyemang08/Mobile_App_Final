@@ -31,7 +31,7 @@ if ((int) $user['email_verified'] !== 1) {
 
 focuslock_ensure_settings($pdo, (int) $user['id']);
 $token = focuslock_issue_token($pdo, (int) $user['id']);
-$settings = focuslock_fetch_settings($pdo, (int) $user['id']);
+$settings = focuslock_sync_unlock_state($pdo, (int) $user['id']);
 
 focuslock_send_json(200, [
     'success' => true,
@@ -43,4 +43,5 @@ focuslock_send_json(200, [
         'displayName' => $user['display_name'] ?? '',
     ],
     'settings' => focuslock_settings_payload($settings),
+    'lockState' => focuslock_lock_state_payload($settings),
 ]);

@@ -114,6 +114,11 @@ class _LoginScreenState extends State<LoginScreen> {
         remotelyOnboarded = SettingsService.looksLikeOnboardedProfile(result.settings!);
       }
     } else {
+      // NEW REGISTRATION: Clear device-local state from previous account
+      // since this is a brand new account being created
+      final settingsService = SettingsService();
+      await settingsService.clearLocalUserStateForAccountSwitch();
+
       final result = await _auth.register(
         email: _emailCtrl.text,
         password: _passwordCtrl.text,
@@ -138,9 +143,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final settingsService = SettingsService();
     var onboarded = await settingsService.isOnboarded();
-    if (!onboarded && remotelyOnboarded) {
-      await settingsService.completeOnboarding();
-      onboarded = true;
+    if (!onboarded) {
+      final remoteComplete = remotelyOnboarded || await settingsService.inferRemoteOnboardingComplete();
+      if (remoteComplete) {
+        await settingsService.completeOnboarding();
+        onboarded = true;
+      }
     }
 
     if (!mounted) return;

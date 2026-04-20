@@ -109,7 +109,7 @@ try {
     ]);
 }
 
-$settings = focuslock_fetch_settings($pdo, $userId);
+$settings = focuslock_sync_unlock_state($pdo, $userId);
 $settingsPayload = focuslock_settings_payload($settings);
 $settingsPayload['userName'] = $userName;
 
@@ -122,4 +122,5 @@ focuslock_send_json(200, [
         'displayName' => $userName,
     ],
     'settings' => $settingsPayload,
+    'lockState' => focuslock_lock_state_payload($settings),
 ]);

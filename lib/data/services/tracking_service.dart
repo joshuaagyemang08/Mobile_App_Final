@@ -131,13 +131,16 @@ class TrackingTaskHandler extends TaskHandler {
 
     // Trigger lock
     if (totalMinutes >= effectiveLimitMinutes) {
-      print('[TrackingService] Limit reached: $totalMinutes >= $effectiveLimitMinutes');
-      final cooldownMinutes = prefs.getInt(AppConstants.keyCooldownMinutes) ?? AppConstants.defaultCooldownMinutes;
-      await _settings.setLocked(true, cooldownMinutes: cooldownMinutes);
-      print('[TrackingService] Showing limit reached notification...');
-      await _notif.showLimitReached();
-      print('[TrackingService] Sending lock action to main thread');
-      FlutterForegroundTask.sendDataToMain({'action': 'lock'});
+      if (!isLocked) {
+        print('[TrackingService] Limit reached: $totalMinutes >= $effectiveLimitMinutes');
+        final cooldownMinutes = prefs.getInt(AppConstants.keyCooldownMinutes) ?? AppConstants.defaultCooldownMinutes;
+        await _settings.setLocked(true, cooldownMinutes: cooldownMinutes);
+        isLocked = true;
+        print('[TrackingService] Showing limit reached notification...');
+        await _notif.showLimitReached();
+        print('[TrackingService] Sending lock action to main thread');
+        FlutterForegroundTask.sendDataToMain({'action': 'lock'});
+      }
     } else {
       if (isLocked) {
         print('[TrackingService] Unlocking (under limit: $totalMinutes < $effectiveLimitMinutes)');

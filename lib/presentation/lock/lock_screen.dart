@@ -138,19 +138,17 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
     });
 
     final usage = context.read<UsageProvider>();
-    final settings = context.read<SettingsProvider>().settings;
-    final unlockCount = await usage.getTodayUnlockCount();
 
+    final unlocked = await usage.unlock();
     if (!mounted) return;
-    if (unlockCount >= settings.maxUnlocksPerDay) {
+    if (!unlocked) {
       setState(() {
         _isVerifying = false;
-        _codeError = 'You\'ve used all your unlocks for today (${settings.maxUnlocksPerDay} max).';
+        _codeError = usage.lastUnlockError ?? 'Unlock failed. Please try again.';
       });
       return;
     }
 
-    await usage.unlock();
     if (!mounted) return;
     Navigator.pushReplacementNamed(context, '/home');
   }
@@ -390,9 +388,23 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
           const SizedBox(height: 12),
           ElevatedButton.icon(
             onPressed: _isVerifying ? null : _useUnlockNow,
-            icon: const Icon(Icons.lock_open),
-            label: Text('Use 1 Unlock (+${settings.extraUnlockMinutes}m)'),
+            icon: _isVerifying
+                ? const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                  )
+                : const Icon(Icons.lock_open),
+            label: Text(_isVerifying ? 'Processing...' : 'Use 1 Unlock (+${settings.extraUnlockMinutes}m)'),
           ),
+          if (_codeError != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              _codeError!,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.danger),
+            ),
+          ],
         ],
         const SizedBox(height: 12),
         FutureBuilder<int>(

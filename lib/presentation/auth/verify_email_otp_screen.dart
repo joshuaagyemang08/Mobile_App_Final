@@ -135,7 +135,15 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
       return;
     }
 
-    final onboarded = await SettingsService().isOnboarded();
+    final settingsService = SettingsService();
+    var onboarded = await settingsService.isOnboarded();
+    if (!onboarded) {
+      final remoteOnboarded = await settingsService.inferRemoteOnboardingComplete();
+      if (remoteOnboarded) {
+        await settingsService.completeOnboarding();
+        onboarded = true;
+      }
+    }
     if (!mounted) return;
 
     if (AppConstants.enableTracking && !(await _hasBlockingPermissions())) {

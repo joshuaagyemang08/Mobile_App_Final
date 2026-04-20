@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
+import 'dart:async';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,6 +9,7 @@ import '../../core/constants/app_constants.dart';
 import '../../core/utils/time_utils.dart';
 import '../models/user_settings.dart';
 import 'backend_api.dart';
+import 'database_service.dart';
 
 class SettingsService {
   static final SettingsService _instance = SettingsService._internal();
@@ -17,8 +19,48 @@ class SettingsService {
   final _secure = const FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
+  String? _lastUnlockError;
+
+  String? get lastUnlockError => _lastUnlockError;
 
   Future<String?> _token() => _secure.read(key: AppConstants.backendTokenKey);
+
+  Future<void> clearLocalUserStateForAccountSwitch() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.remove(AppConstants.keyIsOnboarded);
+    await prefs.remove(AppConstants.keyDailyLimitMinutes);
+    await prefs.remove(AppConstants.keyCooldownMinutes);
+    await prefs.remove(AppConstants.keyExtraUnlockMinutes);
+    await prefs.remove(AppConstants.keyMaxUnlocksPerDay);
+    await prefs.remove(AppConstants.keyMonitoredApps);
+    await prefs.remove(AppConstants.keyLockScheduleEnabled);
+    await prefs.remove(AppConstants.keyScheduleStartHour);
+    await prefs.remove(AppConstants.keyScheduleStartMinute);
+    await prefs.remove(AppConstants.keyScheduleEndHour);
+    await prefs.remove(AppConstants.keyScheduleEndMinute);
+    await prefs.remove(AppConstants.keyAccelerometerEnabled);
+    await prefs.remove(AppConstants.keyWakeHour);
+    await prefs.remove(AppConstants.keyWakeMinute);
+    await prefs.remove(AppConstants.keySleepHour);
+    await prefs.remove(AppConstants.keySleepMinute);
+    await prefs.remove(AppConstants.keyNotificationsEnabled);
+    await prefs.remove(AppConstants.keyTodayUnlockCount);
+    await prefs.remove(AppConstants.keyLastUnlockDate);
+    await prefs.remove(AppConstants.keyLastDailyResetDate);
+    await prefs.remove(AppConstants.keyIsLocked);
+    await prefs.remove(AppConstants.keyCooldownEndTime);
+    await prefs.remove(AppConstants.keyPickupCount);
+    await prefs.remove(AppConstants.keyLastPickupDate);
+    await prefs.remove(AppConstants.keyUserName);
+    await prefs.remove(AppConstants.keyLastFocusIncreaseDate);
+    await prefs.remove(AppConstants.keyLastMonitoredReductionDate);
+
+    await _secure.delete(key: AppConstants.keyChallengeCode);
+    await _secure.delete(key: AppConstants.securePin);
+
+    await DatabaseService().clearUsageHistory();
+  }
 
   // ── ONBOARDING ──────────────────────────────────────────
 
@@ -72,6 +114,7 @@ class SettingsService {
         s.toJson(),
         token: token,
       );
+      await _cacheLockStateFromResponse(response);
       return response['success'] == true;
     } catch (_) {
       // Keep the local cache as the source of truth if the network is unavailable.
@@ -92,6 +135,8 @@ class SettingsService {
       if (response['success'] != true) {
         return null;
       }
+
+      await _cacheLockStateFromResponse(response);
 
       final settingsJson = response['settings'];
       if (settingsJson is Map<String, dynamic>) {
@@ -162,6 +207,53 @@ class SettingsService {
       sleepMinute: prefs.getInt(AppConstants.keySleepMinute) ?? 0,
       notificationsEnabled: prefs.getBool(AppConstants.keyNotificationsEnabled) ?? true,
     );
+  }
+
+  Future<void> syncRemoteLockState() async {
+    final token = await _token();
+    if (token == null || token.isEmpty) {
+      return;
+    }
+
+    try {
+      final response = await BackendApi.getJson('/api/lock_state_get.php', token: token);
+      await _cacheLockStateFromResponse(response);
+    } catch (_) {
+      // Keep local state when network is unavailable.
+    }
+  }
+
+  Future<bool> useUnlock() async {
+    _lastUnlockError = null;
+    final token = await _token();
+    if (token == null || token.isEmpty) {
+      _lastUnlockError = 'Session missing. Please sign in again.';
+      return false;
+    }
+
+    await syncRemoteLockState();
+
+    try {
+      final response = await BackendApi.postJson('/api/use_unlock.php', const {}, token: token);
+      if (response['success'] == true) {
+        await _setLockedLocal(false);
+        await _cacheLockStateFromResponse(response);
+        return true;
+      }
+      await _cacheLockStateFromResponse(response);
+      final message = (response['message'] ?? '').toString().trim();
+      _lastUnlockError = message.isNotEmpty
+          ? message
+          : 'Unlock failed. Please try again.';
+      return false;
+    } catch (e) {
+      if (e is TimeoutException) {
+        _lastUnlockError = 'Request timed out. Please check internet and try again.';
+        return false;
+      }
+      _lastUnlockError = 'Network error while consuming unlock. Please try again.';
+      return false;
+    }
   }
 
   Future<void> _cacheSettings(UserSettings s) async {
@@ -235,11 +327,28 @@ class SettingsService {
   // ── LOCK STATE ──────────────────────────────────────────
 
   Future<void> setLocked(bool locked, {int? cooldownMinutes}) async {
+    await _setLockedLocal(locked, cooldownMinutes: cooldownMinutes, preserveExistingCooldown: true);
+    await _syncRemoteLockStateOnLockChange(locked);
+  }
+
+  Future<void> _setLockedLocal(
+    bool locked, {
+    int? cooldownMinutes,
+    bool preserveExistingCooldown = false,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(AppConstants.keyIsLocked, locked);
+
     if (locked && cooldownMinutes != null) {
-      final endTime = DateTime.now().add(Duration(minutes: cooldownMinutes));
-      await prefs.setString(AppConstants.keyCooldownEndTime, endTime.toIso8601String());
+      final existingRaw = prefs.getString(AppConstants.keyCooldownEndTime);
+      final existingEnd = existingRaw != null ? DateTime.tryParse(existingRaw) : null;
+      final now = DateTime.now();
+
+      if (!preserveExistingCooldown || existingEnd == null || !existingEnd.isAfter(now)) {
+        final endTime = now.add(Duration(minutes: cooldownMinutes));
+        await prefs.setString(AppConstants.keyCooldownEndTime, endTime.toIso8601String());
+      }
+
       // Generate and store challenge code
       final code = _generateChallengeCode();
       await _secure.write(key: AppConstants.keyChallengeCode, value: code);
@@ -247,6 +356,24 @@ class SettingsService {
     if (!locked) {
       await prefs.remove(AppConstants.keyCooldownEndTime);
       await _secure.delete(key: AppConstants.keyChallengeCode);
+    }
+  }
+
+  Future<void> _syncRemoteLockStateOnLockChange(bool locked) async {
+    final token = await _token();
+    if (token == null || token.isEmpty) {
+      return;
+    }
+
+    try {
+      final response = await BackendApi.postJson(
+        '/api/lock_state_set.php',
+        {'locked': locked},
+        token: token,
+      );
+      await _cacheLockStateFromResponse(response);
+    } catch (_) {
+      // Keep local lock state when network is unavailable.
     }
   }
 
@@ -295,10 +422,52 @@ class SettingsService {
   }
 
   Future<void> incrementUnlockCount() async {
+    final usedRemote = await useUnlock();
+    if (usedRemote) {
+      return;
+    }
+
     final prefs = await SharedPreferences.getInstance();
     final count = await getTodayUnlockCount();
     await prefs.setInt(AppConstants.keyTodayUnlockCount, count + 1);
     await prefs.setString(AppConstants.keyLastUnlockDate, TimeUtils.todayKey());
+  }
+
+  Future<void> _cacheLockStateFromResponse(Map<String, dynamic> response) async {
+    final lockState = response['lockState'];
+    if (lockState is Map<String, dynamic>) {
+      await _cacheLockState(lockState);
+      return;
+    }
+    if (lockState is Map) {
+      await _cacheLockState(Map<String, dynamic>.from(lockState));
+    }
+  }
+
+  Future<void> _cacheLockState(Map<String, dynamic> lockState) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final unlockCount = lockState['todayUnlockCount'];
+    if (unlockCount != null) {
+      await prefs.setInt(AppConstants.keyTodayUnlockCount, unlockCount is int ? unlockCount : int.tryParse(unlockCount.toString()) ?? 0);
+    }
+
+    final unlockDayKey = (lockState['unlockDayKey'] ?? '').toString().trim();
+    if (unlockDayKey.isNotEmpty) {
+      await prefs.setString(AppConstants.keyLastUnlockDate, unlockDayKey);
+    }
+
+    final cooldownEndAt = lockState['cooldownEndAt'];
+    if (cooldownEndAt == null || cooldownEndAt.toString().trim().isEmpty) {
+      await prefs.remove(AppConstants.keyCooldownEndTime);
+    } else {
+      await prefs.setString(AppConstants.keyCooldownEndTime, cooldownEndAt.toString());
+    }
+
+    final cooldownActive = lockState['cooldownActive'] == true;
+    if (cooldownActive) {
+      await prefs.setBool(AppConstants.keyIsLocked, true);
+    }
   }
 
   // ── PICKUP COUNT ────────────────────────────────────────
