@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:async';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/services/tracking_service.dart';
@@ -20,6 +23,11 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _currentIndex = 0;
   bool _settingsPromptOpen = false;
+  bool _accessibilityEnabled = true;
+  Timer? _accessibilityCheckTimer;
+
+  static const _platform = MethodChannel('com.focuslock.app/permissions');
+  static const String _keyAccessibilityStatus = 'flutter.accessibility_enabled';
 
   final _pages = const [
     DashboardScreen(),
@@ -30,9 +38,29 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void initState() {
     super.initState();
+    _checkAccessibilityStatus();
+    _accessibilityCheckTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _checkAccessibilityStatus(),
+    );
     if (AppConstants.enableTracking) {
       _startMonitoring();
       FlutterForegroundTask.addTaskDataCallback(_handleTaskData);
+    }
+  }
+
+  Future<void> _checkAccessibilityStatus() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final enabled = await _platform.invokeMethod<bool>('checkAccessibilityPermission') ?? false;
+      await prefs.setBool(_keyAccessibilityStatus, enabled);
+      if (mounted) {
+        setState(() {
+          _accessibilityEnabled = enabled;
+        });
+      }
+    } catch (e) {
+      print('Error checking accessibility: $e');
     }
   }
 
@@ -57,6 +85,7 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   void dispose() {
+    _accessibilityCheckTimer?.cancel();
     if (AppConstants.enableTracking) {
       FlutterForegroundTask.removeTaskDataCallback(_handleTaskData);
     }
@@ -92,7 +121,55 @@ class _HomeShellState extends State<HomeShell> {
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: IndexedStack(index: _currentIndex, children: _pages),
+      body: Stack(
+        children: [
+          IndexedStack(index: _currentIndex, children: _pages),
+          if (!_accessibilityEnabled)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                bottom: false,
+                child: Container(
+                  color: AppTheme.danger.withOpacity(0.1),
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.warning_rounded, color: AppTheme.danger, size: 20),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Accessibility disabled',
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: AppTheme.danger,
+                                  ),
+                            ),
+                            Text(
+                              'App blocking won\'t work. Re-enable in Settings.',
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: AppTheme.textMuted,
+                                    fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => _platform.invokeMethod('openAccessibilitySettings'),
+                        child: const Text('Fix'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
       bottomNavigationBar: SafeArea(
         top: false,
         child: Padding(

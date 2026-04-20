@@ -7,10 +7,15 @@ class UserSettings {
   final List<String> monitoredApps;
   final bool lockScheduleEnabled;
   final int scheduleStartHour;
+  final int scheduleStartMinute;
   final int scheduleEndHour;
+  final int scheduleEndMinute;
   final bool accelerometerEnabled;
   final int wakeHour;
+  final int wakeMinute;
   final int sleepHour;
+  final int sleepMinute;
+  final bool notificationsEnabled;
 
   const UserSettings({
     required this.userName,
@@ -21,10 +26,15 @@ class UserSettings {
     required this.monitoredApps,
     required this.lockScheduleEnabled,
     required this.scheduleStartHour,
+    required this.scheduleStartMinute,
     required this.scheduleEndHour,
+    required this.scheduleEndMinute,
     required this.accelerometerEnabled,
     required this.wakeHour,
+    required this.wakeMinute,
     required this.sleepHour,
+    required this.sleepMinute,
+    required this.notificationsEnabled,
   });
 
   UserSettings copyWith({
@@ -36,10 +46,15 @@ class UserSettings {
     List<String>? monitoredApps,
     bool? lockScheduleEnabled,
     int? scheduleStartHour,
+    int? scheduleStartMinute,
     int? scheduleEndHour,
+    int? scheduleEndMinute,
     bool? accelerometerEnabled,
     int? wakeHour,
+    int? wakeMinute,
     int? sleepHour,
+    int? sleepMinute,
+    bool? notificationsEnabled,
   }) {
     return UserSettings(
       userName: userName ?? this.userName,
@@ -50,10 +65,15 @@ class UserSettings {
       monitoredApps: monitoredApps ?? this.monitoredApps,
       lockScheduleEnabled: lockScheduleEnabled ?? this.lockScheduleEnabled,
       scheduleStartHour: scheduleStartHour ?? this.scheduleStartHour,
+      scheduleStartMinute: scheduleStartMinute ?? this.scheduleStartMinute,
       scheduleEndHour: scheduleEndHour ?? this.scheduleEndHour,
+      scheduleEndMinute: scheduleEndMinute ?? this.scheduleEndMinute,
       accelerometerEnabled: accelerometerEnabled ?? this.accelerometerEnabled,
       wakeHour: wakeHour ?? this.wakeHour,
+      wakeMinute: wakeMinute ?? this.wakeMinute,
       sleepHour: sleepHour ?? this.sleepHour,
+      sleepMinute: sleepMinute ?? this.sleepMinute,
+      notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
     );
   }
 
@@ -66,10 +86,15 @@ class UserSettings {
         monitoredApps: [],
         lockScheduleEnabled: false,
         scheduleStartHour: 8,
+        scheduleStartMinute: 0,
         scheduleEndHour: 22,
+        scheduleEndMinute: 0,
         accelerometerEnabled: true,
         wakeHour: 7,
+        wakeMinute: 0,
         sleepHour: 23,
+        sleepMinute: 0,
+        notificationsEnabled: true,
       );
 
   factory UserSettings.fromJson(Map<String, dynamic> json) {
@@ -85,10 +110,15 @@ class UserSettings {
           : <String>[],
       lockScheduleEnabled: _asBool(json['lockScheduleEnabled'], false),
       scheduleStartHour: _asInt(json['scheduleStartHour'], 8),
+      scheduleStartMinute: _asInt(json['scheduleStartMinute'], 0),
       scheduleEndHour: _asInt(json['scheduleEndHour'], 22),
+      scheduleEndMinute: _asInt(json['scheduleEndMinute'], 0),
       accelerometerEnabled: _asBool(json['accelerometerEnabled'], true),
       wakeHour: _asInt(json['wakeHour'], 7),
+      wakeMinute: _asInt(json['wakeMinute'], 0),
       sleepHour: _asInt(json['sleepHour'], 23),
+      sleepMinute: _asInt(json['sleepMinute'], 0),
+      notificationsEnabled: _asBool(json['notificationsEnabled'], true),
     );
   }
 
@@ -102,10 +132,15 @@ class UserSettings {
       'monitoredApps': monitoredApps,
       'lockScheduleEnabled': lockScheduleEnabled,
       'scheduleStartHour': scheduleStartHour,
+      'scheduleStartMinute': scheduleStartMinute,
       'scheduleEndHour': scheduleEndHour,
+      'scheduleEndMinute': scheduleEndMinute,
       'accelerometerEnabled': accelerometerEnabled,
       'wakeHour': wakeHour,
+      'wakeMinute': wakeMinute,
       'sleepHour': sleepHour,
+      'sleepMinute': sleepMinute,
+      'notificationsEnabled': notificationsEnabled,
     };
   }
 

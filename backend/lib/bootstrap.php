@@ -188,9 +188,14 @@ function focuslock_settings_payload(array $row): array
         'monitoredApps' => array_values(array_map('strval', $monitored)),
         'lockScheduleEnabled' => (bool) ($row['lock_schedule_enabled'] ?? 0),
         'scheduleStartHour' => (int) ($row['schedule_start_hour'] ?? 8),
+        'scheduleStartMinute' => (int) ($row['schedule_start_minute'] ?? 0),
         'scheduleEndHour' => (int) ($row['schedule_end_hour'] ?? 22),
+        'scheduleEndMinute' => (int) ($row['schedule_end_minute'] ?? 0),
         'accelerometerEnabled' => (bool) ($row['accelerometer_enabled'] ?? 1),
         'wakeHour' => (int) ($row['wake_hour'] ?? 7),
+        'wakeMinute' => (int) ($row['wake_minute'] ?? 0),
         'sleepHour' => (int) ($row['sleep_hour'] ?? 23),
+        'sleepMinute' => (int) ($row['sleep_minute'] ?? 0),
+        'notificationsEnabled' => (bool) ($row['notifications_enabled'] ?? 1),
     ];
 }

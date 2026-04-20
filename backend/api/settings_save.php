@@ -18,10 +18,15 @@ $maxUnlocksPerDay = (int) ($body['maxUnlocksPerDay'] ?? 1);
 $monitoredApps = $body['monitoredApps'] ?? [];
 $lockScheduleEnabled = !empty($body['lockScheduleEnabled']);
 $scheduleStartHour = (int) ($body['scheduleStartHour'] ?? 8);
+$scheduleStartMinute = (int) ($body['scheduleStartMinute'] ?? 0);
 $scheduleEndHour = (int) ($body['scheduleEndHour'] ?? 22);
+$scheduleEndMinute = (int) ($body['scheduleEndMinute'] ?? 0);
 $accelerometerEnabled = !empty($body['accelerometerEnabled']);
 $wakeHour = (int) ($body['wakeHour'] ?? 7);
+$wakeMinute = (int) ($body['wakeMinute'] ?? 0);
 $sleepHour = (int) ($body['sleepHour'] ?? 23);
+$sleepMinute = (int) ($body['sleepMinute'] ?? 0);
+$notificationsEnabled = !empty($body['notificationsEnabled']);
 
 if (!is_array($monitoredApps)) {
     $monitoredApps = [];
@@ -38,11 +43,16 @@ $sql = 'INSERT INTO user_settings (
     monitored_apps_json,
     lock_schedule_enabled,
     schedule_start_hour,
+    schedule_start_minute,
     schedule_end_hour,
+    schedule_end_minute,
     accelerometer_enabled,
     wake_hour,
-    sleep_hour
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    wake_minute,
+    sleep_hour,
+    sleep_minute,
+    notifications_enabled
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON DUPLICATE KEY UPDATE
     daily_limit_minutes = VALUES(daily_limit_minutes),
     cooldown_minutes = VALUES(cooldown_minutes),
@@ -51,29 +61,53 @@ ON DUPLICATE KEY UPDATE
     monitored_apps_json = VALUES(monitored_apps_json),
     lock_schedule_enabled = VALUES(lock_schedule_enabled),
     schedule_start_hour = VALUES(schedule_start_hour),
+    schedule_start_minute = VALUES(schedule_start_minute),
     schedule_end_hour = VALUES(schedule_end_hour),
+    schedule_end_minute = VALUES(schedule_end_minute),
     accelerometer_enabled = VALUES(accelerometer_enabled),
     wake_hour = VALUES(wake_hour),
-    sleep_hour = VALUES(sleep_hour)';
+    wake_minute = VALUES(wake_minute),
+    sleep_hour = VALUES(sleep_hour),
+    sleep_minute = VALUES(sleep_minute),
+    notifications_enabled = VALUES(notifications_enabled)';
 
-$stmt = $pdo->prepare($sql);
-$stmt->execute([
-    $userId,
-    $dailyLimitMinutes,
-    $cooldownMinutes,
-    $extraUnlockMinutes,
-    $maxUnlocksPerDay,
-    $settingsJson,
-    $lockScheduleEnabled ? 1 : 0,
-    $scheduleStartHour,
-    $scheduleEndHour,
-    $accelerometerEnabled ? 1 : 0,
-    $wakeHour,
-    $sleepHour,
-]);
+try {
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([
+        $userId,
+        $dailyLimitMinutes,
+        $cooldownMinutes,
+        $extraUnlockMinutes,
+        $maxUnlocksPerDay,
+        $settingsJson,
+        $lockScheduleEnabled ? 1 : 0,
+        $scheduleStartHour,
+        $scheduleStartMinute,
+        $scheduleEndHour,
+        $scheduleEndMinute,
+        $accelerometerEnabled ? 1 : 0,
+        $wakeHour,
+        $wakeMinute,
+        $sleepHour,
+        $sleepMinute,
+        $notificationsEnabled ? 1 : 0,
+    ]);
+} catch (Exception $e) {
+    focuslock_send_json(500, [
+        'success' => false,
+        'message' => 'Failed to save settings: ' . $e->getMessage(),
+    ]);
+}
 
-$updateUser = $pdo->prepare('UPDATE users SET display_name = ? WHERE id = ?');
-$updateUser->execute([$userName !== '' ? $userName : null, $userId]);
+try {
+    $updateUser = $pdo->prepare('UPDATE users SET display_name = ? WHERE id = ?');
+    $updateUser->execute([$userName !== '' ? $userName : null, $userId]);
+} catch (Exception $e) {
+    focuslock_send_json(500, [
+        'success' => false,
+        'message' => 'Failed to update user: ' . $e->getMessage(),
+    ]);
+}
 
 $settings = focuslock_fetch_settings($pdo, $userId);
 $settingsPayload = focuslock_settings_payload($settings);

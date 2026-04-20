@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/scene_background.dart';
 import '../../data/services/notification_service.dart';
+import '../../providers/settings_provider.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -12,23 +14,56 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  bool _wake = true;
-  bool _sleep = true;
-  bool _tips = true;
+  Map<String, String>? _diag;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshDiagnostics();
+  }
+
+  Future<void> _refreshDiagnostics() async {
+    setState(() => _loading = true);
+    final d = await NotificationService().getNotificationDiagnostics();
+    if (!mounted) return;
+    setState(() {
+      _diag = d;
+      _loading = false;
+    });
+  }
 
   Future<void> _preview() async {
     await NotificationService().showPreviewNotification(
       title: 'FocusLock Preview',
       body: 'This is how your reminders will appear.',
     );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Preview notification sent.')),
+    await _refreshDiagnostics();
+  }
+
+  Future<void> _testSleepReminder() async {
+    await NotificationService().sendTestSleepReminderNow();
+    await _refreshDiagnostics();
+  }
+
+  Future<void> _requestPermissions() async {
+    await NotificationService().requestPermission();
+    await _refreshDiagnostics();
+  }
+
+  Future<void> _setAppNotifications(SettingsProvider sp, bool enabled) async {
+    await sp.update(sp.settings.copyWith(notificationsEnabled: enabled));
+    await NotificationService().scheduleSleepReminder(
+      sleepHour: sp.settings.sleepHour,
+      sleepMinute: sp.settings.sleepMinute,
     );
+    await _refreshDiagnostics();
   }
 
   @override
   Widget build(BuildContext context) {
+    final sp = context.watch<SettingsProvider>();
+
     return SceneBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
@@ -36,30 +71,50 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         body: ListView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
           children: [
-            _switchTile(
-              title: 'Wake-up alarm',
-              subtitle: 'Reminder at your wake time',
-              value: _wake,
-              onChanged: (v) => setState(() => _wake = v),
+            _diagCard(),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.92),
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: AppTheme.divider),
+              ),
+              child: SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text('App notifications', style: Theme.of(context).textTheme.titleMedium),
+                subtitle: Text(
+                  'Controls limit alerts and the sleep reminder automation.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                value: sp.settings.notificationsEnabled,
+                onChanged: (v) => _setAppNotifications(sp, v),
+              ),
             ),
             const SizedBox(height: 10),
-            _switchTile(
-              title: 'Sleep reminder',
-              subtitle: 'Reminder at your sleep time',
-              value: _sleep,
-              onChanged: (v) => setState(() => _sleep = v),
+            ElevatedButton(
+              onPressed: _requestPermissions,
+              child: const Text('Request Notification Permission Again'),
             ),
             const SizedBox(height: 10),
-            _switchTile(
-              title: 'Motivation tips',
-              subtitle: 'Small nudges during the day',
-              value: _tips,
-              onChanged: (v) => setState(() => _tips = v),
+            ElevatedButton(
+              onPressed: _testSleepReminder,
+              child: const Text('Trigger Banner Test Notification'),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 10),
             ElevatedButton(
               onPressed: _preview,
               child: const Text('Send Preview Notification'),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton(
+              onPressed: _refreshDiagnostics,
+              child: const Text('Refresh Diagnostics'),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Note: sleep reminder sound depends on your phone notification channel settings and Do Not Disturb rules.',
+              style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
         ),
@@ -67,25 +122,47 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-  Widget _switchTile({
-    required String title,
-    required String subtitle,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-  }) {
+  Widget _diagCard() {
+    if (_loading) {
+      return Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.92),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: AppTheme.divider),
+        ),
+        child: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final d = _diag ?? const <String, String>{};
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.92),
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: AppTheme.divider),
       ),
-      child: SwitchListTile(
-        value: value,
-        onChanged: onChanged,
-        title: Text(title),
-        subtitle: Text(subtitle),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Notification diagnostics', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          _diagLine('Permission', d['permission'] ?? 'Unknown'),
+          _diagLine('App notifications', d['appNotificationsEnabled'] ?? 'Yes'),
+          _diagLine('Local timezone', d['localTimezone'] ?? 'Unknown'),
+          _diagLine('Pending scheduled count', d['pendingCount'] ?? '0'),
+          _diagLine('Sleep scheduled (id 8102)', d['sleepScheduled'] ?? 'No'),
+          _diagLine('Sleep reminder next at', d['sleepAt'] ?? 'Unknown'),
+        ],
       ),
+    );
+  }
+
+  Widget _diagLine(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Text('$label: $value', style: Theme.of(context).textTheme.bodySmall),
     );
   }
 }

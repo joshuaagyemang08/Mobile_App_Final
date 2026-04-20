@@ -13,7 +13,9 @@ class AppConstants {
   static const String keyMaxUnlocksPerDay = 'max_unlocks_per_day';
   static const String keyLockScheduleEnabled = 'lock_schedule_enabled';
   static const String keyScheduleStartHour = 'schedule_start_hour';
+  static const String keyScheduleStartMinute = 'schedule_start_minute';
   static const String keyScheduleEndHour = 'schedule_end_hour';
+  static const String keyScheduleEndMinute = 'schedule_end_minute';
   static const String keyTodayUnlockCount = 'today_unlock_count';
   static const String keyLastUnlockDate = 'last_unlock_date';
   static const String keyLastDailyResetDate = 'last_daily_reset_date';
@@ -25,7 +27,9 @@ class AppConstants {
   static const String keyLastPickupDate = 'last_pickup_date';
   static const String keyUserName = 'user_name';
   static const String keyWakeHour = 'wake_hour';
+  static const String keyWakeMinute = 'wake_minute';
   static const String keySleepHour = 'sleep_hour';
+  static const String keySleepMinute = 'sleep_minute';
   static const String keyIsLoggedIn = 'is_logged_in';
   static const String keyUserEmail = 'user_email';
   static const String keyUserPassword = 'user_password';

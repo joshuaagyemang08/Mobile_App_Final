@@ -17,10 +17,18 @@ class PickupDetector {
 
   double _lastMagnitude = 0;
   DateTime? _lastPickupTime;
-  static const double _motionThreshold = 2.2; // user-acceleration magnitude in m/s²
-  static const Duration _cooldown = Duration(seconds: 6); // min gap between pickups
+  DateTime? _stationarySince;
+  bool _armed = false;
+  static const double _restThreshold = 0.65;
+  static const double _motionThreshold = 1.9; // user-acceleration magnitude in m/s²
+  static const Duration _stableDuration = Duration(milliseconds: 1200);
+  static const Duration _cooldown = Duration(seconds: 10); // min gap between pickups
 
   void start() {
+    _lastMagnitude = 0;
+    _lastPickupTime = null;
+    _stationarySince = null;
+    _armed = false;
     _sub ??= userAccelerometerEventStream().listen((event) {
       final magnitude = sqrt(
         event.x * event.x + event.y * event.y + event.z * event.z,
@@ -29,18 +37,41 @@ class PickupDetector {
       final delta = (magnitude - _lastMagnitude).abs();
       _lastMagnitude = magnitude;
 
-      if (magnitude >= _motionThreshold || delta >= _motionThreshold) {
-        final now = DateTime.now();
-        if (_lastPickupTime == null || now.difference(_lastPickupTime!) > _cooldown) {
-          _lastPickupTime = now;
-          _settings.recordPickup();
+      final now = DateTime.now();
+      final isStationary = magnitude <= _restThreshold && delta <= _restThreshold;
+
+      if (isStationary) {
+        _stationarySince ??= now;
+        if (!_armed && now.difference(_stationarySince!) >= _stableDuration) {
+          _armed = true;
         }
+        return;
       }
+
+      _stationarySince = null;
+
+      if (!_armed) {
+        return;
+      }
+
+      if (magnitude < _motionThreshold && delta < _motionThreshold) {
+        return;
+      }
+
+      if (_lastPickupTime != null && now.difference(_lastPickupTime!) <= _cooldown) {
+        return;
+      }
+
+      _lastPickupTime = now;
+      _armed = false;
+      _settings.recordPickup();
     });
   }
 
   void stop() {
     _sub?.cancel();
     _sub = null;
+    _stationarySince = null;
+    _armed = false;
   }
 }

@@ -49,7 +49,6 @@ void main() async {
 
   // Initialise notifications
   await NotificationService().init();
-  await NotificationService().requestPermission();
 
   // Lock orientation to portrait
   await SystemChrome.setPreferredOrientations([
@@ -154,9 +153,9 @@ class _SplashRouterState extends State<_SplashRouter> {
     final settings = context.read<SettingsProvider>().settings;
 
     // Ensure wake/sleep reminders are restored after app restarts.
-    await NotificationService().scheduleWakeSleepReminders(
-      wakeHour: settings.wakeHour,
+    await NotificationService().scheduleSleepReminder(
       sleepHour: settings.sleepHour,
+      sleepMinute: settings.sleepMinute,
     );
 
     // Start accelerometer pickup detection if enabled

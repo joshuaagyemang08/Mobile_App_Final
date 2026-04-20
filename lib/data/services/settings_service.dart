@@ -58,21 +58,27 @@ class SettingsService {
     return _loadCachedSettings();
   }
 
-  Future<void> saveSettings(UserSettings s) async {
+  Future<bool> saveSettings(UserSettings s) async {
     await _cacheSettings(s);
 
     final token = await _token();
-    if (token != null && token.isNotEmpty) {
-      try {
-        await BackendApi.postJson(
-          '/api/settings_save.php',
-          s.toJson(),
-          token: token,
-        );
-      } catch (_) {
-        // Keep the local cache as the source of truth if the network is unavailable.
-      }
+    if (token == null || token.isEmpty) {
+      return false;
     }
+
+    try {
+      final response = await BackendApi.postJson(
+        '/api/settings_save.php',
+        s.toJson(),
+        token: token,
+      );
+      return response['success'] == true;
+    } catch (_) {
+      // Keep the local cache as the source of truth if the network is unavailable.
+      return false;
+    }
+
+    return false;
   }
 
   Future<UserSettings?> _loadRemoteSettings() async {
@@ -89,7 +95,8 @@ class SettingsService {
 
       final settingsJson = response['settings'];
       if (settingsJson is Map<String, dynamic>) {
-        final settings = UserSettings.fromJson(Map<String, dynamic>.from(settingsJson));
+        final settingsMap = Map<String, dynamic>.from(settingsJson);
+        final settings = await _applyLocalFallbackFromCache(UserSettings.fromJson(settingsMap));
         final user = response['user'];
         if (user is Map<String, dynamic> && (user['displayName'] ?? '').toString().trim().isNotEmpty) {
           return settings.copyWith(userName: user['displayName'].toString());
@@ -101,6 +108,34 @@ class SettingsService {
     }
 
     return null;
+  }
+
+  Future<UserSettings> _applyLocalFallbackFromCache(UserSettings remote) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final cachedScheduleStartMinute = prefs.containsKey(AppConstants.keyScheduleStartMinute)
+      ? prefs.getInt(AppConstants.keyScheduleStartMinute)
+      : null;
+    final cachedScheduleEndMinute = prefs.containsKey(AppConstants.keyScheduleEndMinute)
+      ? prefs.getInt(AppConstants.keyScheduleEndMinute)
+      : null;
+    final cachedWakeMinute = prefs.containsKey(AppConstants.keyWakeMinute)
+      ? prefs.getInt(AppConstants.keyWakeMinute)
+      : null;
+    final cachedSleepMinute = prefs.containsKey(AppConstants.keySleepMinute)
+      ? prefs.getInt(AppConstants.keySleepMinute)
+      : null;
+    final cachedNotificationsEnabled = prefs.containsKey(AppConstants.keyNotificationsEnabled)
+      ? prefs.getBool(AppConstants.keyNotificationsEnabled)
+      : null;
+
+    return remote.copyWith(
+      scheduleStartMinute: cachedScheduleStartMinute ?? remote.scheduleStartMinute,
+      scheduleEndMinute: cachedScheduleEndMinute ?? remote.scheduleEndMinute,
+      wakeMinute: cachedWakeMinute ?? remote.wakeMinute,
+      sleepMinute: cachedSleepMinute ?? remote.sleepMinute,
+      notificationsEnabled: cachedNotificationsEnabled ?? remote.notificationsEnabled,
+    );
   }
 
   Future<UserSettings> _loadCachedSettings() async {
@@ -117,10 +152,15 @@ class SettingsService {
       monitoredApps: apps,
       lockScheduleEnabled: prefs.getBool(AppConstants.keyLockScheduleEnabled) ?? false,
       scheduleStartHour: prefs.getInt(AppConstants.keyScheduleStartHour) ?? 8,
+      scheduleStartMinute: prefs.getInt(AppConstants.keyScheduleStartMinute) ?? 0,
       scheduleEndHour: prefs.getInt(AppConstants.keyScheduleEndHour) ?? 22,
+      scheduleEndMinute: prefs.getInt(AppConstants.keyScheduleEndMinute) ?? 0,
       accelerometerEnabled: prefs.getBool(AppConstants.keyAccelerometerEnabled) ?? true,
       wakeHour: prefs.getInt(AppConstants.keyWakeHour) ?? 7,
+      wakeMinute: prefs.getInt(AppConstants.keyWakeMinute) ?? 0,
       sleepHour: prefs.getInt(AppConstants.keySleepHour) ?? 23,
+      sleepMinute: prefs.getInt(AppConstants.keySleepMinute) ?? 0,
+      notificationsEnabled: prefs.getBool(AppConstants.keyNotificationsEnabled) ?? true,
     );
   }
 
@@ -134,10 +174,15 @@ class SettingsService {
     await prefs.setString(AppConstants.keyMonitoredApps, jsonEncode(s.monitoredApps));
     await prefs.setBool(AppConstants.keyLockScheduleEnabled, s.lockScheduleEnabled);
     await prefs.setInt(AppConstants.keyScheduleStartHour, s.scheduleStartHour);
+    await prefs.setInt(AppConstants.keyScheduleStartMinute, s.scheduleStartMinute);
     await prefs.setInt(AppConstants.keyScheduleEndHour, s.scheduleEndHour);
+    await prefs.setInt(AppConstants.keyScheduleEndMinute, s.scheduleEndMinute);
     await prefs.setBool(AppConstants.keyAccelerometerEnabled, s.accelerometerEnabled);
     await prefs.setInt(AppConstants.keyWakeHour, s.wakeHour);
+    await prefs.setInt(AppConstants.keyWakeMinute, s.wakeMinute);
     await prefs.setInt(AppConstants.keySleepHour, s.sleepHour);
+    await prefs.setInt(AppConstants.keySleepMinute, s.sleepMinute);
+    await prefs.setBool(AppConstants.keyNotificationsEnabled, s.notificationsEnabled);
   }
 
   // ── BEHAVIOUR GUARDRAILS ───────────────────────────────

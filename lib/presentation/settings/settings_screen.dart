@@ -8,6 +8,7 @@ import '../../core/widgets/focuslock_brand.dart';
 import '../../core/widgets/scene_background.dart';
 import '../../data/services/auth_service.dart';
 import '../../data/services/notification_service.dart';
+import '../../data/services/pickup_detector.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../data/models/user_settings.dart';
@@ -24,16 +25,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<GuardrailStatus>? _guardrailFuture;
 
   Future<void> _pickHour({
-    required int currentHour,
-    required ValueChanged<int> onPicked,
+    required TimeOfDay currentTime,
+    required ValueChanged<TimeOfDay> onPicked,
   }) async {
     final selected = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay(hour: currentHour, minute: 0),
+      initialTime: currentTime,
       initialEntryMode: TimePickerEntryMode.dial,
     );
     if (selected == null) return;
-    onPicked(selected.hour);
+    onPicked(selected);
   }
 
   Future<void> _pickMinutes({
@@ -171,16 +172,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return m == 0 ? '${h}h 0m (${minutes} min)' : '${h}h ${m}m (${minutes} min)';
   }
 
-  Future<void> _saveWakeSleep(SettingsProvider sp, UserSettings s, {int? wakeHour, int? sleepHour}) async {
+  Future<void> _saveSleepReminder(
+    SettingsProvider sp,
+    UserSettings s, {
+    required TimeOfDay sleepTime,
+  }) async {
     final updated = s.copyWith(
-      wakeHour: wakeHour ?? s.wakeHour,
-      sleepHour: sleepHour ?? s.sleepHour,
+      sleepHour: sleepTime.hour,
+      sleepMinute: sleepTime.minute,
     );
-    await sp.update(updated);
-    await NotificationService().scheduleWakeSleepReminders(
-      wakeHour: updated.wakeHour,
+    final remoteSaved = await sp.update(updated);
+    await NotificationService().requestPermission();
+    await NotificationService().scheduleSleepReminder(
       sleepHour: updated.sleepHour,
+      sleepMinute: updated.sleepMinute,
     );
+
+    if (!remoteSaved && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Sleep reminder saved on the phone, but the database sync failed.'),
+          backgroundColor: AppTheme.warning,
+        ),
+      );
+    }
+  }
+
+  Future<void> _setPickupTracking(
+    SettingsProvider sp,
+    UserSettings s,
+    bool enabled,
+  ) async {
+    await sp.update(s.copyWith(accelerometerEnabled: enabled));
+    if (enabled) {
+      PickupDetector().start();
+    } else {
+      PickupDetector().stop();
+    }
   }
 
   Future<void> _applyGuardedUpdate(SettingsProvider sp, UserSettings updated) async {
@@ -374,7 +402,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _SectionBlock(
               icon: Icons.schedule_rounded,
               title: 'Automation',
-              subtitle: 'Manage lock windows and daily wake/sleep reminders',
+              subtitle: 'Manage lock windows and sleep reminder',
               child: Column(
                 children: [
                   Builder(
@@ -425,21 +453,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         if (s.lockScheduleEnabled) ...[
                           const Divider(height: 1),
                           ListTile(
-                            title: Text('Start Hour', style: Theme.of(context).textTheme.bodyMedium),
-                            subtitle: Text(_fmtHour(s.scheduleStartHour), style: Theme.of(context).textTheme.bodySmall),
+                            title: Text('Start Time', style: Theme.of(context).textTheme.bodyMedium),
+                            subtitle: Text(_fmtHour(s.scheduleStartHour, s.scheduleStartMinute), style: Theme.of(context).textTheme.bodySmall),
                             trailing: const Icon(Icons.schedule_rounded),
                             onTap: () => _pickHour(
-                              currentHour: s.scheduleStartHour,
-                              onPicked: (h) => sp.update(s.copyWith(scheduleStartHour: h)),
+                              currentTime: TimeOfDay(hour: s.scheduleStartHour, minute: s.scheduleStartMinute),
+                              onPicked: (t) => sp.update(s.copyWith(
+                                scheduleStartHour: t.hour,
+                                scheduleStartMinute: t.minute,
+                              )),
                             ),
                           ),
                           ListTile(
-                            title: Text('End Hour', style: Theme.of(context).textTheme.bodyMedium),
-                            subtitle: Text(_fmtHour(s.scheduleEndHour), style: Theme.of(context).textTheme.bodySmall),
+                            title: Text('End Time', style: Theme.of(context).textTheme.bodyMedium),
+                            subtitle: Text(_fmtHour(s.scheduleEndHour, s.scheduleEndMinute), style: Theme.of(context).textTheme.bodySmall),
                             trailing: const Icon(Icons.schedule_rounded),
                             onTap: () => _pickHour(
-                              currentHour: s.scheduleEndHour,
-                              onPicked: (h) => sp.update(s.copyWith(scheduleEndHour: h)),
+                              currentTime: TimeOfDay(hour: s.scheduleEndHour, minute: s.scheduleEndMinute),
+                              onPicked: (t) => sp.update(s.copyWith(
+                                scheduleEndHour: t.hour,
+                                scheduleEndMinute: t.minute,
+                              )),
                             ),
                           ),
                         ],
@@ -451,22 +485,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Column(
                       children: [
                         ListTile(
-                          title: Text('Wake-up alarm', style: Theme.of(context).textTheme.titleMedium),
-                          subtitle: Text(_fmtHour(s.wakeHour), style: Theme.of(context).textTheme.bodySmall),
-                          trailing: const Icon(Icons.wb_sunny_outlined),
-                          onTap: () => _pickHour(
-                            currentHour: s.wakeHour,
-                            onPicked: (h) => _saveWakeSleep(sp, s, wakeHour: h),
-                          ),
-                        ),
-                        const Divider(height: 1),
-                        ListTile(
                           title: Text('Sleep reminder', style: Theme.of(context).textTheme.titleMedium),
-                          subtitle: Text(_fmtHour(s.sleepHour), style: Theme.of(context).textTheme.bodySmall),
+                          subtitle: Text(_fmtHour(s.sleepHour, s.sleepMinute), style: Theme.of(context).textTheme.bodySmall),
                           trailing: const Icon(Icons.nightlight_round),
                           onTap: () => _pickHour(
-                            currentHour: s.sleepHour,
-                            onPicked: (h) => _saveWakeSleep(sp, s, sleepHour: h),
+                            currentTime: TimeOfDay(hour: s.sleepHour, minute: s.sleepMinute),
+                            onPicked: (t) => _saveSleepReminder(sp, s, sleepTime: t),
                           ),
                         ),
                       ],
@@ -526,7 +550,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                           value: s.accelerometerEnabled,
-                          onChanged: (v) => sp.update(s.copyWith(accelerometerEnabled: v)),
+                          onChanged: (v) => _setPickupTracking(sp, s, v),
                         ),
                       ],
                     ),
@@ -575,21 +599,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     showDialog(context: context, builder: (_) => _ChangePinDialog(sp: sp));
   }
 
-  String _fmtHour(int h) {
+  String _fmtHour(int h, int m) {
     final display = h == 0 ? 12 : (h > 12 ? h - 12 : h);
     final period = h >= 12 ? 'PM' : 'AM';
-    return '$display:00 $period';
+    final mm = m.toString().padLeft(2, '0');
+    return '$display:$mm $period';
   }
 
   bool _isWithinScheduleWindow(UserSettings settings, DateTime now) {
     if (!settings.lockScheduleEnabled) return false;
-    final start = settings.scheduleStartHour;
-    final end = settings.scheduleEndHour;
-    final hour = now.hour;
+    final nowMinutes = (now.hour * 60) + now.minute;
+    final startMinutes = (settings.scheduleStartHour * 60) + settings.scheduleStartMinute;
+    final endMinutes = (settings.scheduleEndHour * 60) + settings.scheduleEndMinute;
 
-    if (start == end) return true;
-    if (start < end) return hour >= start && hour < end;
-    return hour >= start || hour < end;
+    if (startMinutes == endMinutes) return true;
+    if (startMinutes < endMinutes) {
+      return nowMinutes >= startMinutes && nowMinutes < endMinutes;
+    }
+    return nowMinutes >= startMinutes || nowMinutes < endMinutes;
   }
 
   void _confirmReset(BuildContext ctx, SettingsProvider sp) {

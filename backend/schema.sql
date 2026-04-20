@@ -1,3 +1,8 @@
+DROP TABLE IF EXISTS otp_codes;
+DROP TABLE IF EXISTS auth_tokens;
+DROP TABLE IF EXISTS user_settings;
+DROP TABLE IF EXISTS users;
+
 CREATE TABLE users (
   id INT AUTO_INCREMENT PRIMARY KEY,
   email VARCHAR(190) NOT NULL UNIQUE,
@@ -44,10 +49,15 @@ CREATE TABLE user_settings (
   monitored_apps_json JSON NOT NULL,
   lock_schedule_enabled TINYINT(1) NOT NULL DEFAULT 0,
   schedule_start_hour INT NOT NULL DEFAULT 8,
+  schedule_start_minute INT NOT NULL DEFAULT 0,
   schedule_end_hour INT NOT NULL DEFAULT 22,
+  schedule_end_minute INT NOT NULL DEFAULT 0,
   accelerometer_enabled TINYINT(1) NOT NULL DEFAULT 1,
   wake_hour INT NOT NULL DEFAULT 7,
+  wake_minute INT NOT NULL DEFAULT 0,
   sleep_hour INT NOT NULL DEFAULT 23,
+  sleep_minute INT NOT NULL DEFAULT 0,
+  notifications_enabled TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_user_settings_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE

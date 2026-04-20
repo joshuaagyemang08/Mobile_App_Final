@@ -26,7 +26,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // Survey answers
   final _nameController = TextEditingController();
   int _wakeHour = 7;
+  int _wakeMinute = 0;
   int _sleepHour = 23;
+  int _sleepMinute = 0;
   final Set<String> _selectedApps = {};
   int _dailyLimitMinutes = 60;
   int _cooldownMinutes = 30;
@@ -113,17 +115,23 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       monitoredApps: _selectedApps.toList(),
       lockScheduleEnabled: false,
       scheduleStartHour: _wakeHour,
+      scheduleStartMinute: _wakeMinute,
       scheduleEndHour: _sleepHour,
+      scheduleEndMinute: _sleepMinute,
       accelerometerEnabled: true,
       wakeHour: _wakeHour,
+      wakeMinute: _wakeMinute,
       sleepHour: _sleepHour,
+      sleepMinute: _sleepMinute,
+      notificationsEnabled: true,
     );
     await settingsService.saveSettings(settings);
     await settingsService.savePin(_pinController.text);
     await settingsService.completeOnboarding();
-    await NotificationService().scheduleWakeSleepReminders(
-      wakeHour: _wakeHour,
+    await NotificationService().requestPermission();
+    await NotificationService().scheduleSleepReminder(
       sleepHour: _sleepHour,
+      sleepMinute: _sleepMinute,
     );
 
     if (mounted) {
@@ -376,18 +384,26 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 _timePickerCard(
                   label: 'Wake up',
                   hour: _wakeHour,
+                  minute: _wakeMinute,
                   onTap: () => _pickHour(
-                    initialHour: _wakeHour,
-                    onPicked: (h) => setState(() => _wakeHour = h),
+                    initialTime: TimeOfDay(hour: _wakeHour, minute: _wakeMinute),
+                    onPicked: (t) => setState(() {
+                      _wakeHour = t.hour;
+                      _wakeMinute = t.minute;
+                    }),
                   ),
                 ),
                 const SizedBox(height: 10),
                 _timePickerCard(
                   label: 'Sleep',
                   hour: _sleepHour,
+                  minute: _sleepMinute,
                   onTap: () => _pickHour(
-                    initialHour: _sleepHour,
-                    onPicked: (h) => setState(() => _sleepHour = h),
+                    initialTime: TimeOfDay(hour: _sleepHour, minute: _sleepMinute),
+                    onPicked: (t) => setState(() {
+                      _sleepHour = t.hour;
+                      _sleepMinute = t.minute;
+                    }),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -409,17 +425,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Future<void> _pickHour({
-    required int initialHour,
-    required ValueChanged<int> onPicked,
+    required TimeOfDay initialTime,
+    required ValueChanged<TimeOfDay> onPicked,
   }) async {
     final selected = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay(hour: initialHour, minute: 0),
+      initialTime: initialTime,
       initialEntryMode: TimePickerEntryMode.dial,
     );
 
     if (selected == null) return;
-    onPicked(selected.hour);
+    onPicked(selected);
   }
 
   Future<void> _pickMinutes({
@@ -560,10 +576,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget _timePickerCard({
     required String label,
     required int hour,
+    required int minute,
     required VoidCallback onTap,
   }) {
     final displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
     final period = hour >= 12 ? 'PM' : 'AM';
+    final mm = minute.toString().padLeft(2, '0');
 
     return InkWell(
       borderRadius: BorderRadius.circular(18),
@@ -585,7 +603,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ),
             ),
             Text(
-              '$displayHour:00 $period',
+              '$displayHour:$mm $period',
               style: Theme.of(context)
                   .textTheme
                   .titleMedium

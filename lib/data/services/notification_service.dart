@@ -1,6 +1,10 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/constants/app_constants.dart';
+import '../../core/utils/time_utils.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
@@ -11,10 +15,38 @@ class NotificationService {
 
   final _plugin = FlutterLocalNotificationsPlugin();
   bool _tzReady = false;
+  static const _keyLastSleepScheduledAt = 'notif_last_sleep_scheduled_at';
+  static const _keyLast75AlertDate = 'notif_last_75_alert_date';
+  static const _keyLast90AlertDate = 'notif_last_90_alert_date';
+  static const _keyLastLimitAlertDate = 'notif_last_limit_alert_date';
+  static const _alertsChannelId = 'focuslock_alerts_v4';
+  static const _bannerNotificationDetails = NotificationDetails(
+    android: AndroidNotificationDetails(
+      _alertsChannelId,
+      'FocusLock Alerts',
+      channelDescription: 'Usage limit, sleep reminders, and lock alerts',
+      importance: Importance.max,
+      priority: Priority.high,
+      playSound: true,
+      enableVibration: true,
+      category: AndroidNotificationCategory.reminder,
+      visibility: NotificationVisibility.public,
+      ticker: 'FocusLock alert',
+      icon: '@mipmap/ic_launcher',
+    ),
+  );
 
   Future<void> init() async {
     if (!_tzReady) {
       tz.initializeTimeZones();
+      try {
+        final currentTimeZone = await FlutterTimezone.getLocalTimezone();
+        if (currentTimeZone.identifier.isNotEmpty) {
+          tz.setLocalLocation(tz.getLocation(currentTimeZone.identifier));
+        }
+      } catch (_) {
+        // Fall back to the timezone package default if the native bridge is unavailable.
+      }
       _tzReady = true;
     }
 
@@ -25,12 +57,14 @@ class NotificationService {
 
     // Create notification channel
     const channel = AndroidNotificationChannel(
-      'focuslock_channel',
+      _alertsChannelId,
       'FocusLock Alerts',
-      description: 'Usage limit and lock notifications',
-      importance: Importance.high,
+      description: 'Usage limit, sleep reminders, and lock alerts',
+      importance: Importance.max,
       playSound: true,
+      enableVibration: true,
     );
+
     await _plugin
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(channel);
@@ -47,6 +81,7 @@ class NotificationService {
   }
 
   Future<void> showApproaching75(int remainingMinutes) async {
+    if (!await _automatedNotificationsEnabled()) return;
     await _show(
       id: AppConstants.notifIdApproaching75,
       title: 'Heads up, ${_fmt(remainingMinutes)} left',
@@ -55,6 +90,7 @@ class NotificationService {
   }
 
   Future<void> showApproaching90(int remainingMinutes) async {
+    if (!await _automatedNotificationsEnabled()) return;
     await _show(
       id: AppConstants.notifIdApproaching90,
       title: 'Almost there! ${_fmt(remainingMinutes)} left',
@@ -63,6 +99,7 @@ class NotificationService {
   }
 
   Future<void> showLimitReached() async {
+    // Limit reached is CRITICAL - always show regardless of toggle
     await _show(
       id: AppConstants.notifIdLimitReached,
       title: 'FocusLock activated',
@@ -78,39 +115,98 @@ class NotificationService {
     await _show(id: 7777, title: title, body: body);
   }
 
-  Future<void> scheduleWakeSleepReminders({required int wakeHour, required int sleepHour}) async {
-    await _plugin.cancel(8101);
+  Future<void> scheduleSleepReminder({
+    required int sleepHour,
+    required int sleepMinute,
+  }) async {
+    if (!await _automatedNotificationsEnabled()) {
+      await _plugin.cancel(8102);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_keyLastSleepScheduledAt);
+      return;
+    }
+
     await _plugin.cancel(8102);
 
-    final wake = _nextInstance(hour: wakeHour);
-    final sleep = _nextInstance(hour: sleepHour);
-
-    const details = NotificationDetails(
-      android: AndroidNotificationDetails(
-        'focuslock_channel',
-        'FocusLock Alerts',
-        channelDescription: 'Usage limit and lock notifications',
-        importance: Importance.high,
-        priority: Priority.high,
-        icon: '@mipmap/ic_launcher',
-      ),
-    );
-
-    await _scheduleDaily(
-      8101,
-      'Good morning',
-      'Start your day with intention, not endless scrolling.',
-      wake,
-      details,
+    final sleepReminder = _nextSleepReminderInstance(
+      hour: sleepHour,
+      minute: sleepMinute,
     );
 
     await _scheduleDaily(
       8102,
-      'Wind down reminder',
-      'Your sleep window is near. Time to unplug.',
-      sleep,
-      details,
+      'Sleep reminder',
+      'You have 1 minute to sleep. Time to put your phone away.',
+      sleepReminder,
+      _bannerNotificationDetails,
     );
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyLastSleepScheduledAt, sleepReminder.toLocal().toIso8601String());
+  }
+
+  Future<void> sendTestSleepReminderNow() async {
+    await _plugin.show(
+      8202,
+      'Sleep reminder (test)',
+      'This is a test sleep reminder notification.',
+      _bannerNotificationDetails,
+    );
+  }
+
+  Future<Map<String, String>> getNotificationDiagnostics() async {
+    final prefs = await SharedPreferences.getInstance();
+    final notificationPermission = await Permission.notification.status;
+    final pending = await _plugin.pendingNotificationRequests();
+
+    final hasSleep = pending.any((n) => n.id == 8102);
+    final sleepAt = prefs.getString(_keyLastSleepScheduledAt) ?? 'Unknown';
+    final notificationsEnabled = prefs.getBool(AppConstants.keyNotificationsEnabled) ?? true;
+
+    return {
+      'permission': notificationPermission.toString(),
+      'appNotificationsEnabled': notificationsEnabled ? 'Yes' : 'No',
+      'pendingCount': pending.length.toString(),
+      'localTimezone': tz.local.name,
+      'sleepScheduled': hasSleep ? 'Yes' : 'No',
+      'sleepAt': sleepAt,
+    };
+  }
+
+  Future<void> maybeShowUsageThresholdNotifications({
+    required int totalMinutes,
+    required int effectiveLimitMinutes,
+  }) async {
+    if (!await _automatedNotificationsEnabled()) return;
+    if (effectiveLimitMinutes <= 0) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final today = TimeUtils.todayKey();
+    final remaining = effectiveLimitMinutes - totalMinutes;
+    final percentUsed = totalMinutes / effectiveLimitMinutes;
+
+    if (totalMinutes >= effectiveLimitMinutes) {
+      if (prefs.getString(_keyLastLimitAlertDate) != today) {
+        await showLimitReached();
+        await prefs.setString(_keyLastLimitAlertDate, today);
+      }
+      return;
+    }
+
+    if (percentUsed >= 0.90) {
+      if (prefs.getString(_keyLast90AlertDate) != today) {
+        await showApproaching90(remaining);
+        await prefs.setString(_keyLast90AlertDate, today);
+      }
+      return;
+    }
+
+    if (percentUsed >= 0.75) {
+      if (prefs.getString(_keyLast75AlertDate) != today) {
+        await showApproaching75(remaining);
+        await prefs.setString(_keyLast75AlertDate, today);
+      }
+    }
   }
 
   Future<void> _scheduleDaily(
@@ -145,31 +241,50 @@ class NotificationService {
     }
   }
 
-  tz.TZDateTime _nextInstance({required int hour}) {
+  tz.TZDateTime _nextInstance({required int hour, required int minute}) {
     final now = DateTime.now();
-    var scheduled = DateTime(now.year, now.month, now.day, hour);
+    var scheduled = DateTime(now.year, now.month, now.day, hour, minute);
     if (scheduled.isBefore(now)) {
       scheduled = scheduled.add(const Duration(days: 1));
     }
     return tz.TZDateTime.from(scheduled, tz.local);
   }
 
+  tz.TZDateTime _nextSleepReminderInstance({
+    required int hour,
+    required int minute,
+  }) {
+    final now = tz.TZDateTime.now(tz.local);
+    var sleepTime = tz.TZDateTime(tz.local, now.year, now.month, now.day, hour, minute);
+    if (!sleepTime.isAfter(now)) {
+      sleepTime = sleepTime.add(const Duration(days: 1));
+    }
+
+    final earlyReminder = sleepTime.subtract(const Duration(minutes: 1));
+    if (earlyReminder.isAfter(now)) {
+      return earlyReminder;
+    }
+
+    return sleepTime;
+  }
+
   Future<void> _show({required int id, required String title, required String body}) async {
-    await _plugin.show(
-      id,
-      title,
-      body,
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'focuslock_channel',
-          'FocusLock Alerts',
-          channelDescription: 'Usage limit and lock notifications',
-          importance: Importance.high,
-          priority: Priority.high,
-          icon: '@mipmap/ic_launcher',
-        ),
-      ),
-    );
+    try {
+      await _plugin.show(
+        id,
+        title,
+        body,
+        _bannerNotificationDetails,
+      );
+      print('[NotificationService] Sent notification: $title');
+    } catch (e) {
+      print('[NotificationService] Error showing notification: $e');
+    }
+  }
+
+  Future<bool> _automatedNotificationsEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(AppConstants.keyNotificationsEnabled) ?? true;
   }
 
   String _fmt(int minutes) {

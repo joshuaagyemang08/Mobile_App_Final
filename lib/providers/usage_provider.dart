@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:app_usage/app_usage.dart';
 import '../data/services/settings_service.dart';
+import '../data/services/notification_service.dart';
 import '../data/services/database_service.dart';
 import '../data/models/app_usage_model.dart';
 import '../data/models/user_settings.dart';
@@ -15,6 +16,7 @@ class UsageProvider extends ChangeNotifier {
   int _totalMinutesToday = 0;
   int _limitMinutes = 60;
   int _effectiveLimitMinutes = 60;
+  int _todayPickupCount = 0;
   bool _isLocked = false;
   bool _isCooldownExpired = false;
   DateTime? _cooldownEndTime;
@@ -25,6 +27,7 @@ class UsageProvider extends ChangeNotifier {
   int get limitMinutes => _effectiveLimitMinutes;
   int get remainingMinutes => (_effectiveLimitMinutes - _totalMinutesToday).clamp(0, _effectiveLimitMinutes);
   double get usagePercent => (_totalMinutesToday / (_effectiveLimitMinutes <= 0 ? 1 : _effectiveLimitMinutes)).clamp(0.0, 1.0);
+  int get todayPickupCount => _todayPickupCount;
   bool get isLocked => _isLocked;
   bool get isCooldownExpired => _isCooldownExpired;
   DateTime? get cooldownEndTime => _cooldownEndTime;
@@ -33,13 +36,13 @@ class UsageProvider extends ChangeNotifier {
 
   bool _isWithinScheduleWindow(UserSettings settings, DateTime now) {
     if (!settings.lockScheduleEnabled) return false;
-    final start = settings.scheduleStartHour;
-    final end = settings.scheduleEndHour;
-    final hour = now.hour;
+    final nowMinutes = (now.hour * 60) + now.minute;
+    final startMinutes = (settings.scheduleStartHour * 60) + settings.scheduleStartMinute;
+    final endMinutes = (settings.scheduleEndHour * 60) + settings.scheduleEndMinute;
 
-    if (start == end) return true;
-    if (start < end) return hour >= start && hour < end;
-    return hour >= start || hour < end;
+    if (startMinutes == endMinutes) return true;
+    if (startMinutes < endMinutes) return nowMinutes >= startMinutes && nowMinutes < endMinutes;
+    return nowMinutes >= startMinutes || nowMinutes < endMinutes;
   }
 
   Future<void> _syncScheduledLock(UserSettings settings) async {
@@ -80,6 +83,7 @@ class UsageProvider extends ChangeNotifier {
       _todayEntries = _buildDesignEntries(monitoredApps);
       _totalMinutesToday = _todayEntries.fold(0, (s, e) => s + e.durationMinutes);
       _effectiveLimitMinutes = _limitMinutes;
+      _todayPickupCount = await _settingsService.getTodayPickupCount();
       await _syncScheduledLock(settings);
       _isLoading = false;
       notifyListeners();
@@ -93,6 +97,7 @@ class UsageProvider extends ChangeNotifier {
     // Pull from DB (already written by background service)
     _todayEntries = await _db.getUsageForDate(TimeUtils.todayKey());
     _totalMinutesToday = _todayEntries.fold(0, (s, e) => s + e.durationMinutes);
+    _todayPickupCount = await _settingsService.getTodayPickupCount();
 
     // If DB empty (service not started yet), query directly
     if (_todayEntries.isEmpty && monitoredApps.isNotEmpty) {
@@ -100,6 +105,13 @@ class UsageProvider extends ChangeNotifier {
     }
 
     await _refreshEffectiveLimit();
+    final inScheduledWindow = _isWithinScheduleWindow(settings, DateTime.now());
+    if (!inScheduledWindow) {
+      await NotificationService().maybeShowUsageThresholdNotifications(
+        totalMinutes: _totalMinutesToday,
+        effectiveLimitMinutes: _effectiveLimitMinutes,
+      );
+    }
     await _syncScheduledLock(settings);
     await _applyLockIfLimitReached();
 
@@ -150,8 +162,22 @@ class UsageProvider extends ChangeNotifier {
   Future<void> updateFromBackground(int totalMinutes) async {
     if (!AppConstants.enableTracking) return;
     _totalMinutesToday = totalMinutes;
+    _todayPickupCount = await _settingsService.getTodayPickupCount();
     await _refreshEffectiveLimit();
+    final settings = await _settingsService.loadSettings();
+    final inScheduledWindow = _isWithinScheduleWindow(settings, DateTime.now());
+    if (!inScheduledWindow) {
+      await NotificationService().maybeShowUsageThresholdNotifications(
+        totalMinutes: _totalMinutesToday,
+        effectiveLimitMinutes: _effectiveLimitMinutes,
+      );
+    }
     await _applyLockIfLimitReached();
+    notifyListeners();
+  }
+
+  Future<void> refreshPickupCount() async {
+    _todayPickupCount = await _settingsService.getTodayPickupCount();
     notifyListeners();
   }
 

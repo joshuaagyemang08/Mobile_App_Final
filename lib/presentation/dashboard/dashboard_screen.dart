@@ -362,35 +362,29 @@ class _StatsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<int>(
-      future: usage.getTodayPickupCount(),
-      builder: (ctx, snap) {
-        final pickups = snap.data ?? 0;
-        return Row(
-          children: [
-            _StatCard(
-              icon: Icons.smartphone_rounded,
-              label: 'Phone Pickups',
-              value: '$pickups',
-              color: AppTheme.primary,
-            ),
-            const SizedBox(width: 12),
-            FutureBuilder<int>(
-              future: usage.getTodayUnlockCount(),
-              builder: (ctx2, snap2) {
-                final used = snap2.data ?? 0;
-                final left = (settings.maxUnlocksPerDay - used).clamp(0, settings.maxUnlocksPerDay);
-                return _StatCard(
-                  icon: Icons.lock_open_rounded,
-                  label: 'Unlocks Left',
-                  value: '$left',
-                  color: left > 0 ? AppTheme.accent : AppTheme.danger,
-                );
-              },
-            ),
-          ],
-        );
-      },
+    return Row(
+      children: [
+        _StatCard(
+          icon: Icons.smartphone_rounded,
+          label: 'Phone Pickups',
+          value: '${usage.todayPickupCount}',
+          color: AppTheme.primary,
+        ),
+        const SizedBox(width: 12),
+        FutureBuilder<int>(
+          future: usage.getTodayUnlockCount(),
+          builder: (ctx2, snap2) {
+            final used = snap2.data ?? 0;
+            final left = (settings.maxUnlocksPerDay - used).clamp(0, settings.maxUnlocksPerDay);
+            return _StatCard(
+              icon: Icons.lock_open_rounded,
+              label: 'Unlocks Left',
+              value: '$left',
+              color: left > 0 ? AppTheme.accent : AppTheme.danger,
+            );
+          },
+        ),
+      ],
     );
   }
 }

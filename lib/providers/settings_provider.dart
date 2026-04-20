@@ -41,10 +41,11 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> update(UserSettings updated) async {
-    await _service.saveSettings(updated);
+  Future<bool> update(UserSettings updated) async {
+    final remoteSaved = await _service.saveSettings(updated);
     _settings = updated;
     notifyListeners();
+    return remoteSaved;
   }
 
   Future<GuardrailStatus> getGuardrailStatus() async {
@@ -117,7 +118,7 @@ class SettingsProvider extends ChangeNotifier {
       }
     }
 
-    await _service.saveSettings(updated);
+    final remoteSaved = await _service.saveSettings(updated);
     _settings = updated;
     notifyListeners();
 
@@ -135,6 +136,10 @@ class SettingsProvider extends ChangeNotifier {
       info = 'Focus Lock increase saved. You can increase Focus Lock values again after 30 days.';
     } else if (isMonitoredReduction) {
       info = 'Monitored-app reduction saved. You can reduce monitored apps again after 30 days.';
+    }
+
+    if (!remoteSaved) {
+      info = '${info ?? 'Settings saved locally.'} Database sync failed, so phpMyAdmin may still show the old values.';
     }
 
     return SettingsUpdateResult(applied: true, message: info);

@@ -70,8 +70,14 @@ class _PermissionsScreenState extends State<PermissionsScreen> with WidgetsBindi
     _platform.invokeMethod('openAccessibilitySettings');
   }
 
-  Future<void> _requestNotif() async {
-    await Permission.notification.request();
+  Future<void> _openNotifSettings() async {
+    if (_notifGranted) {
+      try {
+        await _platform.invokeMethod('openAppNotificationSettings');
+      } catch (_) {}
+    } else {
+      await Permission.notification.request();
+    }
     await _checkAll();
   }
 
@@ -177,7 +183,7 @@ class _PermissionsScreenState extends State<PermissionsScreen> with WidgetsBindi
                         title: 'Notifications',
                         description: 'Sends usage alerts before your limit is reached.',
                         isGranted: _notifGranted,
-                        onTap: _requestNotif,
+                        onTap: _openNotifSettings,
                         isRequired: false,
                       ),
                       const SizedBox(height: 18),
@@ -241,7 +247,7 @@ class _PermissionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: isGranted ? null : onTap,
+      onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
         padding: const EdgeInsets.all(16),

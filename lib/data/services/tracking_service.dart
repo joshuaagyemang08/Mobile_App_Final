@@ -21,20 +21,22 @@ class TrackingTaskHandler extends TaskHandler {
   final _notif = NotificationService();
   final _db = DatabaseService();
 
-  bool _sent75 = false;
-  bool _sent90 = false;
-
   bool _isWithinScheduleWindow({
     required DateTime now,
     required int startHour,
+    required int startMinute,
     required int endHour,
+    required int endMinute,
   }) {
-    final hour = now.hour;
-    if (startHour == endHour) return true;
-    if (startHour < endHour) {
-      return hour >= startHour && hour < endHour;
+    final nowMinutes = now.hour * 60 + now.minute;
+    final startMinutes = (startHour * 60) + startMinute;
+    final endMinutes = (endHour * 60) + endMinute;
+
+    if (startMinutes == endMinutes) return true;
+    if (startMinutes < endMinutes) {
+      return nowMinutes >= startMinutes && nowMinutes < endMinutes;
     }
-    return hour >= startHour || hour < endHour;
+    return nowMinutes >= startMinutes || nowMinutes < endMinutes;
   }
 
   @override
@@ -50,20 +52,22 @@ class TrackingTaskHandler extends TaskHandler {
     final today = TimeUtils.todayKey();
     final lastResetDate = prefs.getString(AppConstants.keyLastDailyResetDate);
     if (lastResetDate != today) {
-      _sent75 = false;
-      _sent90 = false;
       await _settings.setLocked(false);
       await prefs.setString(AppConstants.keyLastDailyResetDate, today);
     }
 
     final lockScheduleEnabled = prefs.getBool(AppConstants.keyLockScheduleEnabled) ?? false;
     final scheduleStartHour = prefs.getInt(AppConstants.keyScheduleStartHour) ?? 8;
+    final scheduleStartMinute = prefs.getInt(AppConstants.keyScheduleStartMinute) ?? 0;
     final scheduleEndHour = prefs.getInt(AppConstants.keyScheduleEndHour) ?? 22;
+    final scheduleEndMinute = prefs.getInt(AppConstants.keyScheduleEndMinute) ?? 0;
     final inScheduledWindow = lockScheduleEnabled &&
         _isWithinScheduleWindow(
           now: DateTime.now(),
           startHour: scheduleStartHour,
+          startMinute: scheduleStartMinute,
           endHour: scheduleEndHour,
+          endMinute: scheduleEndMinute,
         );
 
     var isLocked = await _settings.isLocked();
@@ -119,27 +123,24 @@ class TrackingTaskHandler extends TaskHandler {
     final extraUnlockMinutes = prefs.getInt(AppConstants.keyExtraUnlockMinutes) ?? AppConstants.defaultExtraUnlockMinutes;
     final unlocksUsed = await _settings.getTodayUnlockCount();
     final effectiveLimitMinutes = limitMinutes + (unlocksUsed * extraUnlockMinutes);
-    final remaining = effectiveLimitMinutes - totalMinutes;
-    final percentUsed = totalMinutes / (effectiveLimitMinutes <= 0 ? 1 : effectiveLimitMinutes);
 
-    // Send notifications at thresholds
-    if (percentUsed >= 0.75 && !_sent75 && percentUsed < 0.90) {
-      await _notif.showApproaching75(remaining);
-      _sent75 = true;
-    }
-    if (percentUsed >= 0.90 && !_sent90 && percentUsed < 1.0) {
-      await _notif.showApproaching90(remaining);
-      _sent90 = true;
-    }
+    await _notif.maybeShowUsageThresholdNotifications(
+      totalMinutes: totalMinutes,
+      effectiveLimitMinutes: effectiveLimitMinutes,
+    );
 
     // Trigger lock
     if (totalMinutes >= effectiveLimitMinutes) {
+      print('[TrackingService] Limit reached: $totalMinutes >= $effectiveLimitMinutes');
       final cooldownMinutes = prefs.getInt(AppConstants.keyCooldownMinutes) ?? AppConstants.defaultCooldownMinutes;
       await _settings.setLocked(true, cooldownMinutes: cooldownMinutes);
+      print('[TrackingService] Showing limit reached notification...');
       await _notif.showLimitReached();
+      print('[TrackingService] Sending lock action to main thread');
       FlutterForegroundTask.sendDataToMain({'action': 'lock'});
     } else {
       if (isLocked) {
+        print('[TrackingService] Unlocking (under limit: $totalMinutes < $effectiveLimitMinutes)');
         await _settings.setLocked(false);
         isLocked = false;
       }
