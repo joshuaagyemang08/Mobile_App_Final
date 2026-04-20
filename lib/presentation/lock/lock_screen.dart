@@ -120,12 +120,17 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _useUnlockNow() async {
-    final pinOk = await showPinPrompt(
+    final result = await showPinPrompt(
       context,
       title: 'Unlock Protected',
       subtitle: 'Enter your PIN before spending an unlock.',
     );
-    if (!mounted || !pinOk) return;
+    if (!mounted) return;
+    if (result == PinPromptResult.forgot) {
+      Navigator.pushNamed(context, '/forgot-pin');
+      return;
+    }
+    if (result != PinPromptResult.success) return;
 
     setState(() {
       _isVerifying = true;

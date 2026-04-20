@@ -3,12 +3,18 @@ import 'package:flutter/services.dart';
 
 import '../../data/services/settings_service.dart';
 
-Future<bool> showPinPrompt(
+enum PinPromptResult {
+  success,
+  cancel,
+  forgot,
+}
+
+Future<PinPromptResult> showPinPrompt(
   BuildContext context, {
   String title = 'Enter PIN',
   String subtitle = 'Enter your 6-digit PIN to continue.',
 }) async {
-  final result = await showDialog<bool>(
+  final result = await showDialog<PinPromptResult>(
     context: context,
     barrierDismissible: false,
     builder: (_) => _PinPromptDialog(
@@ -17,7 +23,7 @@ Future<bool> showPinPrompt(
     ),
   );
 
-  return result == true;
+  return result ?? PinPromptResult.cancel;
 }
 
 class _PinPromptDialog extends StatefulWidget {
@@ -62,7 +68,7 @@ class _PinPromptDialogState extends State<_PinPromptDialog> {
     if (!mounted) return;
 
     if (ok) {
-      Navigator.of(context, rootNavigator: true).pop(true);
+      Navigator.of(context, rootNavigator: true).pop(PinPromptResult.success);
       return;
     }
 
@@ -81,8 +87,13 @@ class _PinPromptDialogState extends State<_PinPromptDialog> {
     await Future<void>.delayed(const Duration(milliseconds: 80));
 
     if (mounted) {
-      Navigator.of(context, rootNavigator: true).pop(false);
+      Navigator.of(context, rootNavigator: true).pop(PinPromptResult.cancel);
     }
+  }
+
+  void _forgotPin() {
+    if (_isVerifying || _isClosing) return;
+    Navigator.of(context, rootNavigator: true).pop(PinPromptResult.forgot);
   }
 
   @override
@@ -118,6 +129,14 @@ class _PinPromptDialogState extends State<_PinPromptDialog> {
               counterText: '',
             ),
             onSubmitted: (_) => _focusNode.unfocus(),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: _forgotPin,
+              child: const Text('Forgot PIN? Reset with OTP'),
+            ),
           ),
         ],
       ),

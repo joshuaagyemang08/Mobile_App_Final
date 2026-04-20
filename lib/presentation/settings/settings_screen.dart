@@ -1029,6 +1029,16 @@ class _ChangePinDialogState extends State<_ChangePinDialog> {
             TextField(controller: _confirmCtrl, obscureText: true, keyboardType: TextInputType.number,
                 maxLength: AppConstants.pinLength,
                 decoration: InputDecoration(labelText: 'Confirm New PIN (6 digits)', errorText: _error, counterText: '')),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  Navigator.pushNamed(context, '/forgot-pin');
+                },
+                child: const Text('Forgot PIN? Reset with OTP'),
+              ),
+            ),
           ],
         ),
         actions: [

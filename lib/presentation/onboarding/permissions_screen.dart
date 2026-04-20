@@ -81,6 +81,14 @@ class _PermissionsScreenState extends State<PermissionsScreen> with WidgetsBindi
     final onboarded = await SettingsService().isOnboarded();
     if (!mounted) return;
 
+    final args = ModalRoute.of(context)?.settings.arguments;
+    final returnToDashboard = args is Map && args['returnToDashboard'] == true;
+
+    if (returnToDashboard && onboarded) {
+      Navigator.pop(context, true);
+      return;
+    }
+
     Navigator.pushReplacementNamed(context, onboarded ? '/home' : '/onboarding');
   }
 

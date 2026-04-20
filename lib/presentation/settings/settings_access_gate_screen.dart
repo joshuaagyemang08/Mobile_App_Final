@@ -18,18 +18,20 @@ class _SettingsAccessGateScreenState extends State<SettingsAccessGateScreen> {
   }
 
   Future<void> _unlock() async {
-    final ok = await showPinPrompt(
+    final result = await showPinPrompt(
       context,
       title: 'Unlock Settings',
       subtitle: 'Enter your PIN before opening Settings.',
     );
 
     if (!mounted) return;
-    if (ok) {
+    if (result == PinPromptResult.success) {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const SettingsScreen()),
       );
+    } else if (result == PinPromptResult.forgot) {
+      Navigator.pushReplacementNamed(context, '/forgot-pin');
     } else {
       Navigator.pop(context);
     }

@@ -67,14 +67,19 @@ class _HomeShellState extends State<HomeShell> {
     if (_settingsPromptOpen) return;
     _settingsPromptOpen = true;
 
-    final ok = await showPinPrompt(
+    final result = await showPinPrompt(
       context,
       title: 'Unlock Settings',
       subtitle: 'Enter your PIN before opening Settings.',
     );
 
     _settingsPromptOpen = false;
-    if (!ok || !mounted) return;
+    if (!mounted) return;
+    if (result == PinPromptResult.forgot) {
+      Navigator.pushNamed(context, '/forgot-pin');
+      return;
+    }
+    if (result != PinPromptResult.success) return;
     setState(() => _currentIndex = 2);
   }
 
