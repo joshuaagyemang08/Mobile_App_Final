@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/constants/social_apps.dart';
@@ -10,6 +11,7 @@ import '../../data/models/user_settings.dart';
 import '../../data/services/notification_service.dart';
 import '../../data/services/settings_service.dart';
 import '../../providers/settings_provider.dart';
+import '../auth/verify_email_otp_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -40,6 +42,35 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   bool _pinVisible = false;
   String? _pinError;
   bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _guardVerifiedAccount();
+  }
+
+  Future<void> _guardVerifiedAccount() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      if (!mounted) return;
+      Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+      return;
+    }
+
+    await user.reload();
+    final refreshed = FirebaseAuth.instance.currentUser;
+    if (!mounted) return;
+
+    if (refreshed == null || !refreshed.emailVerified) {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(
+          builder: (_) => VerifyEmailOtpScreen(email: refreshed?.email ?? user.email ?? ''),
+        ),
+        (route) => false,
+      );
+    }
+  }
 
   void _dismissKeyboard() {
     FocusScope.of(context).unfocus();
@@ -129,10 +160,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     await settingsService.savePin(_pinController.text);
     await settingsService.completeOnboarding();
     await NotificationService().requestPermission();
-    await NotificationService().scheduleSleepReminder(
-      sleepHour: _sleepHour,
-      sleepMinute: _sleepMinute,
-    );
 
     if (mounted) {
       await context.read<SettingsProvider>().load();

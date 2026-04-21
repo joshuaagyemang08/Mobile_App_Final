@@ -139,7 +139,7 @@ class SettingsProvider extends ChangeNotifier {
     }
 
     if (!remoteSaved) {
-      info = '${info ?? 'Settings saved locally.'} Database sync failed, so phpMyAdmin may still show the old values.';
+      info = '${info ?? 'Settings saved locally.'} Firebase sync failed, so cloud values may still be outdated.';
     }
 
     return SettingsUpdateResult(applied: true, message: info);

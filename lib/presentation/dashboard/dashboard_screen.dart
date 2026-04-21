@@ -362,29 +362,99 @@ class _StatsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    final cooldownEnd = usage.cooldownEndTime;
+    final inCooldown = usage.isLocked && cooldownEnd != null && cooldownEnd.isAfter(DateTime.now());
+
+    return Column(
       children: [
-        _StatCard(
-          icon: Icons.smartphone_rounded,
-          label: 'Phone Pickups',
-          value: '${usage.todayPickupCount}',
-          color: AppTheme.primary,
+        Row(
+          children: [
+            _StatCard(
+              icon: Icons.smartphone_rounded,
+              label: 'Phone Pickups',
+              value: '${usage.todayPickupCount}',
+              color: AppTheme.primary,
+            ),
+            const SizedBox(width: 12),
+            FutureBuilder<int>(
+              future: usage.getTodayUnlockCount(),
+              builder: (ctx2, snap2) {
+                final used = snap2.data ?? 0;
+                final left = (settings.maxUnlocksPerDay - used).clamp(0, settings.maxUnlocksPerDay);
+                return _StatCard(
+                  icon: Icons.lock_open_rounded,
+                  label: 'Unlocks Left',
+                  value: '$left',
+                  color: left > 0 ? AppTheme.accent : AppTheme.danger,
+                );
+              },
+            ),
+          ],
         ),
-        const SizedBox(width: 12),
-        FutureBuilder<int>(
-          future: usage.getTodayUnlockCount(),
-          builder: (ctx2, snap2) {
-            final used = snap2.data ?? 0;
-            final left = (settings.maxUnlocksPerDay - used).clamp(0, settings.maxUnlocksPerDay);
-            return _StatCard(
-              icon: Icons.lock_open_rounded,
-              label: 'Unlocks Left',
-              value: '$left',
-              color: left > 0 ? AppTheme.accent : AppTheme.danger,
-            );
-          },
-        ),
+        if (inCooldown) ...[
+          const SizedBox(height: 12),
+          _CooldownCard(endTime: cooldownEnd),
+        ],
       ],
+    );
+  }
+}
+
+class _CooldownCard extends StatelessWidget {
+  final DateTime endTime;
+
+  const _CooldownCard({required this.endTime});
+
+  @override
+  Widget build(BuildContext context) {
+    final surface = Theme.of(context).cardColor;
+    final border = Theme.of(context).dividerColor;
+
+    return StreamBuilder<int>(
+      stream: Stream.periodic(
+        const Duration(seconds: 1),
+        (_) => endTime.difference(DateTime.now()).inSeconds,
+      ),
+      initialData: endTime.difference(DateTime.now()).inSeconds,
+      builder: (context, snap) {
+        final raw = snap.data ?? 0;
+        final seconds = raw < 0 ? 0 : raw;
+        final label = seconds > 0 ? TimeUtils.formatSeconds(seconds) : '00:00';
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: surface,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: border),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppTheme.warning.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: const Icon(Icons.timer_rounded, color: AppTheme.warning, size: 18),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Cooldown Active', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 14)),
+                    Text('Remaining: $label', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.warning)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

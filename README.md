@@ -1,17 +1,69 @@
-# focuslock
+# FocusLock
 
-A new Flutter project.
+FocusLock is a Flutter app for screen-time control, lock windows, unlock limits, and focus habits.
 
-## Getting Started
+The app has been migrated from a custom PHP backend to Firebase.
 
-This project is a starting point for a Flutter application.
+## Firebase Setup
 
-A few resources to get you started if this is your first Flutter project:
+1. Create a Firebase project in Firebase Console.
+2. Enable Authentication with Email/Password.
+3. Enable Cloud Firestore.
+4. Add your Android app in Firebase Console and download `google-services.json`.
+5. Place `google-services.json` in `android/app/`.
+6. (Optional for iOS) Add `GoogleService-Info.plist` to `ios/Runner/`.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Firestore Data Model
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Each signed-in user is stored in:
+
+- `users/{uid}`
+
+Document structure:
+
+- `email` (string)
+- `displayName` (string)
+- `settings` (map of `UserSettings` fields)
+- `lockState` (map)
+- `createdAt` / `updatedAt` (timestamps)
+
+`lockState` fields used by the app:
+
+- `todayUnlockCount` (number)
+- `unlockDayKey` (string in `yyyy-MM-dd`)
+- `cooldownActive` (bool)
+- `cooldownEndAt` (ISO timestamp string or null)
+
+## Firestore Rules (Starter)
+
+Use this as a safe baseline and tighten further as needed:
+
+```text
+rules_version = '2';
+service cloud.firestore {
+	match /databases/{database}/documents {
+		match /users/{userId} {
+			allow read, write: if request.auth != null && request.auth.uid == userId;
+		}
+	}
+}
+```
+
+## Run
+
+```bash
+flutter pub get
+flutter run
+```
+
+## Optional: Web/Desktop Dart-Define Setup
+
+If you do not use `firebase_options.dart`, you can provide Firebase config at runtime:
+
+```bash
+flutter run \
+	--dart-define=FIREBASE_API_KEY=... \
+	--dart-define=FIREBASE_APP_ID=... \
+	--dart-define=FIREBASE_MESSAGING_SENDER_ID=... \
+	--dart-define=FIREBASE_PROJECT_ID=...
+```

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
@@ -26,7 +27,6 @@ class VerifyEmailOtpScreen extends StatefulWidget {
 
 class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
   static const _permissionsChannel = MethodChannel('com.focuslock.app/permissions');
-  final _codeCtrl = TextEditingController();
   final _auth = AuthService();
   bool _loading = false;
   bool _sending = false;
@@ -37,7 +37,7 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
   void initState() {
     super.initState();
     if (!widget.autoSend) {
-      _info = 'A verification code was sent during account creation.';
+      _info = 'A verification email was sent during account creation.';
     }
     if (widget.autoSend) {
       _sendCode();
@@ -46,7 +46,6 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
 
   @override
   void dispose() {
-    _codeCtrl.dispose();
     super.dispose();
   }
 
@@ -74,84 +73,73 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
     setState(() {
       _sending = false;
       if (result.success) {
-        _info = result.message.isNotEmpty ? result.message : 'Verification code sent.';
+        _info = result.message.isNotEmpty ? result.message : 'Verification email sent.';
         _error = null;
       } else {
-        _error = result.message.isNotEmpty ? result.message : 'Could not send verification code.';
+        _error = result.message.isNotEmpty ? result.message : 'Could not send verification email.';
         _info = null;
       }
     });
   }
 
-  String? _extractOtpCode(String rawInput) {
-    final raw = rawInput.trim();
-    if (raw.isEmpty) {
-      return null;
-    }
-
-    if (RegExp(r'^\d{4,8}$').hasMatch(raw)) {
-      return raw;
-    }
-
-    final uri = Uri.tryParse(raw);
-    if (uri != null) {
-      final fromQuery = uri.queryParameters['code'];
-      if (fromQuery != null && RegExp(r'^\d{4,8}$').hasMatch(fromQuery.trim())) {
-        return fromQuery.trim();
-      }
-    }
-
-    final codeMatch = RegExp(r'\b\d{4,8}\b').firstMatch(raw);
-    if (codeMatch != null) {
-      return codeMatch.group(0);
-    }
-
-    return null;
+  Future<void> _backToLogin() async {
+    await _auth.logout();
+    if (!mounted) return;
+    Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
   }
 
   Future<void> _verify() async {
-    final code = _extractOtpCode(_codeCtrl.text);
-    if (code == null) {
-      setState(() => _error = 'Enter your code, or paste the verification link and try again.');
-      return;
-    }
-
     setState(() {
       _loading = true;
       _error = null;
     });
 
-    final result = await _auth.verifyOtp(
-      email: widget.email,
-      code: code,
-      purpose: widget.purpose,
-    );
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      setState(() {
+        _loading = false;
+        _error = 'Sign in first, then come back to verify your email.';
+      });
+      return;
+    }
+
+    await currentUser.reload();
+    final refreshedUser = FirebaseAuth.instance.currentUser;
+    final verified = refreshedUser?.emailVerified ?? false;
+
+    if (!verified) {
+      setState(() {
+        _loading = false;
+        _error = 'Your email is still not verified. Open the email link, then tap I have verified my email again.';
+      });
+      return;
+    }
 
     if (!mounted) return;
     setState(() => _loading = false);
 
-    if (!result.success) {
-      setState(() => _error = result.message.isNotEmpty ? result.message : 'Verification failed.');
-      return;
-    }
-
-    final settingsService = SettingsService();
-    var onboarded = await settingsService.isOnboarded();
-    if (!onboarded) {
-      final remoteOnboarded = await settingsService.inferRemoteOnboardingComplete();
-      if (remoteOnboarded) {
-        await settingsService.completeOnboarding();
-        onboarded = true;
+    if (verified) {
+      final settingsService = SettingsService();
+      var onboarded = await settingsService.isOnboarded();
+      if (!onboarded) {
+        final remoteOnboarded = await settingsService.inferRemoteOnboardingComplete();
+        if (remoteOnboarded) {
+          await settingsService.completeOnboarding();
+          onboarded = true;
+        }
       }
-    }
-    if (!mounted) return;
+      if (!mounted) return;
 
-    if (AppConstants.enableTracking && !(await _hasBlockingPermissions())) {
-      Navigator.pushNamedAndRemoveUntil(context, '/permissions', (route) => false);
+      if (AppConstants.enableTracking && !(await _hasBlockingPermissions())) {
+        Navigator.pushNamedAndRemoveUntil(context, '/permissions', (route) => false);
+        return;
+      }
+
+      Navigator.pushNamedAndRemoveUntil(context, onboarded ? '/home' : '/onboarding', (route) => false);
       return;
     }
 
-    Navigator.pushNamedAndRemoveUntil(context, onboarded ? '/home' : '/onboarding', (route) => false);
+    setState(() => _error = 'Email verification is not complete yet.');
   }
 
   @override
@@ -171,7 +159,6 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
                   child: Padding(
                     padding: const EdgeInsets.only(top: 8, left: 2),
                     child: Row(
-                      mainAxisSize: MainAxisSize.min,
                       children: [
                         const FocusLockMark(size: 36),
                         const SizedBox(width: 10),
@@ -181,6 +168,12 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
                               .textTheme
                               .titleMedium
                               ?.copyWith(color: isDark ? Colors.white : AppTheme.textPrimary),
+                        ),
+                        const Spacer(),
+                        TextButton.icon(
+                          onPressed: _loading || _sending ? null : _backToLogin,
+                          icon: const Icon(Icons.arrow_back_rounded),
+                          label: const Text('Back to Login'),
                         ),
                       ],
                     ),
@@ -213,7 +206,7 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
                                 ),
                                 const SizedBox(height: 10),
                                 Text(
-                                  'A one-time code was sent to ${widget.email}. Paste the code or full verification link below.',
+                                  'A verification email was sent to ${widget.email}. Open the email and tap the link inside it.',
                                   style: Theme.of(context)
                                       .textTheme
                                       .bodySmall
@@ -234,26 +227,13 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Enter verification code',
+                                  'Check your inbox',
                                   style: Theme.of(context).textTheme.titleMedium?.copyWith(color: AppTheme.textPrimary),
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  'This confirms your account before you continue.',
+                                  'After you tap the link in the email, come back here and confirm.',
                                   style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                                const SizedBox(height: 14),
-                                TextField(
-                                  controller: _codeCtrl,
-                                  keyboardType: TextInputType.text,
-                                  autofillHints: const [AutofillHints.oneTimeCode],
-                                  textInputAction: TextInputAction.done,
-                                  onSubmitted: (_) => _verify(),
-                                  decoration: const InputDecoration(
-                                    labelText: 'Verification code or link',
-                                    hintText: 'e.g. 123456',
-                                    prefixIcon: Icon(Icons.mark_email_read_outlined),
-                                  ),
                                 ),
                                 if (_error != null) ...[
                                   const SizedBox(height: 10),
@@ -300,7 +280,7 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
                                           height: 18,
                                           child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                                         )
-                                      : const Text('Verify Email'),
+                                      : const Text('I have verified my email'),
                                 ),
                                 const SizedBox(height: 12),
                                 TextButton(
@@ -311,7 +291,7 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
                                           height: 18,
                                           child: CircularProgressIndicator(strokeWidth: 2),
                                         )
-                                      : const Text('Did not get it? Resend code'),
+                                      : const Text('Did not get it? Resend verification email'),
                                 ),
                               ],
                             ),

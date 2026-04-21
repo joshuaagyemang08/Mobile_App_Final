@@ -1,8 +1,11 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../../core/utils/time_utils.dart';
 import '../models/auth_result.dart';
-import 'backend_api.dart';
+import '../models/user_settings.dart';
 import 'settings_service.dart';
 
 class AuthService {
@@ -13,10 +16,11 @@ class AuthService {
   final _secure = const FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
+  final _auth = FirebaseAuth.instance;
+  final _firestore = FirebaseFirestore.instance;
 
   Future<bool> isLoggedIn() async {
-    final token = await _secure.read(key: AppConstants.backendTokenKey);
-    return token != null && token.isNotEmpty;
+    return _auth.currentUser != null;
   }
 
   Future<String?> getUserEmail() => _secure.read(key: AppConstants.backendEmailKey);
@@ -28,37 +32,146 @@ class AuthService {
     required String password,
     String displayName = '',
   }) async {
-    final response = await BackendApi.postJson('/api/auth_register.php', {
-      'email': email,
-      'password': password,
-      'displayName': displayName,
-    });
+    try {
+      final normalizedEmail = email.trim().toLowerCase();
+      final previousEmail = await getUserEmail();
 
-    return AuthResult.fromJson(response);
+      final cred = await _auth.createUserWithEmailAndPassword(
+        email: normalizedEmail,
+        password: password,
+      );
+
+      final user = cred.user;
+      if (user == null) {
+        return const AuthResult(success: false, message: 'Account creation failed. Please try again.');
+      }
+
+      if (displayName.trim().isNotEmpty) {
+        await user.updateDisplayName(displayName.trim());
+      }
+
+      if (previousEmail != null && previousEmail.trim().toLowerCase() != normalizedEmail) {
+        await SettingsService().clearLocalUserStateForAccountSwitch();
+      }
+
+      final token = await user.getIdToken(true);
+      if (token == null || token.isEmpty) {
+        return const AuthResult(success: false, message: 'Could not start your session. Please try again.');
+      }
+
+      await _storeSession(
+        token: token,
+        email: normalizedEmail,
+        displayName: user.displayName,
+      );
+
+      final defaults = UserSettings.defaults();
+      await _firestore.collection('users').doc(user.uid).set({
+        'email': normalizedEmail,
+        'displayName': user.displayName ?? defaults.userName,
+        'settings': defaults.toJson(),
+        'lockState': {
+          'todayUnlockCount': 0,
+          'unlockDayKey': TimeUtils.todayKey(),
+          'cooldownActive': false,
+          'cooldownEndAt': null,
+        },
+        'updatedAt': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      String verificationMessage = 'Verification email sent. Check your inbox before continuing.';
+      try {
+        await user.sendEmailVerification();
+      } on FirebaseAuthException catch (e) {
+        verificationMessage =
+            'Account created, but verification email failed to send. [${e.code}] ${e.message ?? ''}'.trim();
+      } catch (_) {
+        verificationMessage = 'Account created, but verification email failed to send.';
+      }
+
+      await SettingsService().syncRemoteLockState();
+
+      return AuthResult(
+        success: true,
+        message: verificationMessage,
+        requiresOtp: true,
+        email: normalizedEmail,
+        token: token,
+        settings: defaults,
+      );
+    } on FirebaseAuthException catch (e) {
+      return AuthResult(success: false, message: _mapAuthError(e));
+    } catch (_) {
+      return const AuthResult(success: false, message: 'Could not create account right now.');
+    }
   }
 
   Future<AuthResult> login({required String email, required String password}) async {
-    final previousEmail = await getUserEmail();
-    final response = await BackendApi.postJson('/api/auth_login.php', {
-      'email': email,
-      'password': password,
-    });
+    try {
+      final normalizedEmail = email.trim().toLowerCase();
+      final previousEmail = await getUserEmail();
 
-    final result = AuthResult.fromJson(response);
-    if (result.success && result.token != null) {
-      final nextEmail = (result.email ?? email.trim().toLowerCase()).trim().toLowerCase();
-      if (previousEmail != null && previousEmail.trim().toLowerCase() != nextEmail) {
+      final cred = await _auth.signInWithEmailAndPassword(
+        email: normalizedEmail,
+        password: password,
+      );
+      final user = cred.user;
+      if (user == null) {
+        return const AuthResult(success: false, message: 'Sign in failed. Please try again.');
+      }
+
+      final token = await user.getIdToken(true);
+      if (token == null || token.isEmpty) {
+        return const AuthResult(success: false, message: 'Could not start your session. Please try again.');
+      }
+
+      await user.reload();
+      if (!user.emailVerified) {
+        String verificationMessage = 'Please verify your email before signing in. We sent a new verification email.';
+        try {
+          await user.sendEmailVerification();
+        } on FirebaseAuthException catch (e) {
+          verificationMessage =
+              'Please verify your email before signing in. Could not send verification email. [${e.code}] ${e.message ?? ''}'.trim();
+        } catch (_) {
+          verificationMessage =
+              'Please verify your email before signing in. Could not send verification email.';
+        }
+
+        return AuthResult(
+          success: false,
+          requiresOtp: true,
+          message: verificationMessage,
+          email: normalizedEmail,
+        );
+      }
+
+      if (previousEmail != null && previousEmail.trim().toLowerCase() != normalizedEmail) {
         await SettingsService().clearLocalUserStateForAccountSwitch();
       }
 
       await _storeSession(
-        token: result.token!,
-        email: nextEmail,
-        displayName: result.settings?.userName,
+        token: token,
+        email: normalizedEmail,
+        displayName: user.displayName,
       );
+
+      final settings = await SettingsService().loadSettings();
       await SettingsService().syncRemoteLockState();
+
+      return AuthResult(
+        success: true,
+        message: 'Welcome back.',
+        email: normalizedEmail,
+        token: token,
+        settings: settings,
+      );
+    } on FirebaseAuthException catch (e) {
+      return AuthResult(success: false, message: _mapAuthError(e));
+    } catch (_) {
+      return const AuthResult(success: false, message: 'Unable to sign in right now.');
     }
-    return result;
   }
 
   Future<AuthResult> verifyOtp({
@@ -66,56 +179,94 @@ class AuthService {
     required String code,
     required String purpose,
   }) async {
-    final previousEmail = await getUserEmail();
-    final response = await BackendApi.postJson('/api/verify_otp.php', {
-      'email': email,
-      'code': code,
-      'purpose': purpose,
-    });
-
-    final result = AuthResult.fromJson(response);
-    if (result.success && result.token != null) {
-      final nextEmail = (result.email ?? email.trim().toLowerCase()).trim().toLowerCase();
-      if (previousEmail != null && previousEmail.trim().toLowerCase() != nextEmail) {
-        await SettingsService().clearLocalUserStateForAccountSwitch();
+    if (purpose == 'pin_reset') {
+      if (code.trim().isEmpty) {
+        return const AuthResult(success: false, message: 'Enter your recovery code.');
       }
-
-      await _storeSession(
-        token: result.token!,
-        email: nextEmail,
-        displayName: result.settings?.userName,
-      );
-      await SettingsService().syncRemoteLockState();
+      return const AuthResult(success: true, message: 'Code accepted.');
     }
-    return result;
+
+    return const AuthResult(
+      success: false,
+      message: 'Email OTP verification is no longer used. Please sign in directly.',
+    );
   }
 
   Future<AuthResult> requestVerificationOtp({required String email}) async {
-    final response = await BackendApi.postJson('/api/request_verification_otp.php', {
-      'email': email,
-    });
-    return AuthResult.fromJson(response);
+    final user = _auth.currentUser;
+    if (user == null) {
+      return const AuthResult(success: false, message: 'Sign in first so we can send a verification email.');
+    }
+
+    final currentEmail = user.email?.trim().toLowerCase();
+    if (currentEmail == null || currentEmail.isEmpty) {
+      return const AuthResult(success: false, message: 'No email address is attached to this account.');
+    }
+
+    if (currentEmail != email.trim().toLowerCase()) {
+      return const AuthResult(success: false, message: 'That email does not match the signed-in account.');
+    }
+
+    try {
+      await user.sendEmailVerification();
+      return const AuthResult(
+        success: true,
+        message: 'Verification email sent. Check your inbox and tap the link.',
+      );
+    } on FirebaseAuthException catch (e) {
+      return AuthResult(
+        success: false,
+        message: 'Could not send verification email. [${e.code}] ${e.message ?? ''}'.trim(),
+      );
+    } catch (_) {
+      return const AuthResult(success: false, message: 'Could not send verification email.');
+    }
   }
 
   Future<AuthResult> requestPinResetOtp() async {
-    final token = await getToken();
-    if (token == null || token.isEmpty) {
+    final user = _auth.currentUser;
+    if (user == null) {
       return const AuthResult(success: false, message: 'You must be signed in to request a PIN reset code.');
     }
-
-    final response = await BackendApi.postJson(
-      '/api/request_pin_reset_otp.php',
-      const {},
-      token: token,
+    return const AuthResult(
+      success: true,
+      message: 'PIN reset is available in-app after code verification on this device.',
     );
-    return AuthResult.fromJson(response);
+  }
+
+  Future<AuthResult> reauthenticateForPinReset({required String password}) async {
+    final user = _auth.currentUser;
+    final email = user?.email?.trim();
+    if (user == null || email == null || email.isEmpty) {
+      return const AuthResult(success: false, message: 'Session expired. Please sign in again.');
+    }
+
+    try {
+      final credential = EmailAuthProvider.credential(
+        email: email,
+        password: password,
+      );
+      await user.reauthenticateWithCredential(credential);
+      return const AuthResult(success: true, message: 'Identity verified. You can set a new PIN now.');
+    } on FirebaseAuthException catch (e) {
+      return AuthResult(success: false, message: _mapAuthError(e));
+    } catch (_) {
+      return const AuthResult(success: false, message: 'Could not verify your identity.');
+    }
   }
 
   Future<AuthResult> requestPasswordResetOtp({required String email}) async {
-    final response = await BackendApi.postJson('/api/request_password_reset_otp.php', {
-      'email': email,
-    });
-    return AuthResult.fromJson(response);
+    try {
+      await _auth.sendPasswordResetEmail(email: email.trim().toLowerCase());
+      return const AuthResult(
+        success: true,
+        message: 'Password reset email sent. Use the email link to finish resetting your password.',
+      );
+    } on FirebaseAuthException catch (e) {
+      return AuthResult(success: false, message: _mapAuthError(e));
+    } catch (_) {
+      return const AuthResult(success: false, message: 'Could not send password reset email.');
+    }
   }
 
   Future<AuthResult> resetPasswordWithOtp({
@@ -123,23 +274,14 @@ class AuthService {
     required String code,
     required String newPassword,
   }) async {
-    final response = await BackendApi.postJson('/api/reset_password.php', {
-      'email': email,
-      'code': code,
-      'newPassword': newPassword,
-    });
-    return AuthResult.fromJson(response);
+    return const AuthResult(
+      success: false,
+      message: 'For Firebase, reset your password from the email link we sent.',
+    );
   }
 
   Future<void> logout() async {
-    final token = await getToken();
-    if (token != null && token.isNotEmpty) {
-      try {
-        await BackendApi.postJson('/api/logout.php', const {}, token: token);
-      } catch (_) {
-        // Ignore network errors during sign out; the local session is still cleared.
-      }
-    }
+    await _auth.signOut();
     // Clear device-local user state on logout so next user doesn't see cached settings
     await SettingsService().clearLocalUserStateForAccountSwitch();
     await _clearSession();
@@ -161,5 +303,24 @@ class AuthService {
     await _secure.delete(key: AppConstants.backendTokenKey);
     await _secure.delete(key: AppConstants.backendEmailKey);
     await _secure.delete(key: AppConstants.backendDisplayNameKey);
+  }
+
+  String _mapAuthError(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'email-already-in-use':
+        return 'An account with this email already exists.';
+      case 'invalid-email':
+        return 'Please enter a valid email address.';
+      case 'weak-password':
+        return 'Use a stronger password (at least 6 characters).';
+      case 'user-not-found':
+      case 'wrong-password':
+      case 'invalid-credential':
+        return 'Wrong credentials. Check email/password.';
+      case 'too-many-requests':
+        return 'Too many attempts. Please try again later.';
+      default:
+        return e.message ?? 'Authentication failed. Please try again.';
+    }
   }
 }

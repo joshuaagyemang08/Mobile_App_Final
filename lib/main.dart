@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import 'core/theme/app_theme.dart';
 import 'core/constants/app_constants.dart';
+import 'core/firebase/firebase_bootstrap.dart';
 import 'core/widgets/scene_background.dart';
-import 'data/services/auth_service.dart';
 import 'data/services/settings_service.dart';
 import 'data/services/notification_service.dart';
 import 'data/services/pickup_detector.dart';
@@ -16,6 +17,7 @@ import 'providers/usage_provider.dart';
 import 'presentation/auth/login_screen.dart';
 import 'presentation/auth/signup_screen.dart';
 import 'presentation/auth/forgot_password_screen.dart';
+import 'presentation/auth/verify_email_otp_screen.dart';
 import 'presentation/onboarding/permissions_screen.dart';
 import 'presentation/onboarding/onboarding_screen.dart';
 import 'presentation/dashboard/home_shell.dart';
@@ -31,6 +33,7 @@ final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await FirebaseBootstrap.initialize();
   FlutterForegroundTask.initCommunicationPort();
 
   _permissionsChannel.setMethodCallHandler((call) async {
@@ -125,9 +128,29 @@ class _SplashRouterState extends State<_SplashRouter> {
     await Future.delayed(const Duration(milliseconds: 800));
     if (!mounted) return;
 
-    final isLoggedIn = await AuthService().isLoggedIn();
-    if (!isLoggedIn) {
+    final auth = FirebaseAuth.instance;
+    final user = auth.currentUser;
+    if (user == null) {
       if (mounted) Navigator.pushReplacementNamed(context, '/login');
+      return;
+    }
+
+    await user.reload();
+    final refreshedUser = auth.currentUser;
+    if (refreshedUser == null) {
+      if (mounted) Navigator.pushReplacementNamed(context, '/login');
+      return;
+    }
+
+    if (!refreshedUser.emailVerified) {
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => VerifyEmailOtpScreen(email: refreshedUser.email ?? ''),
+          ),
+        );
+      }
       return;
     }
 
@@ -158,12 +181,6 @@ class _SplashRouterState extends State<_SplashRouter> {
     await context.read<SettingsProvider>().load();
 
     final settings = context.read<SettingsProvider>().settings;
-
-    // Ensure wake/sleep reminders are restored after app restarts.
-    await NotificationService().scheduleSleepReminder(
-      sleepHour: settings.sleepHour,
-      sleepMinute: settings.sleepMinute,
-    );
 
     // Start accelerometer pickup detection if enabled
     if (AppConstants.enableTracking && settings.accelerometerEnabled) {

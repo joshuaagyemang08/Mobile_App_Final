@@ -7,7 +7,6 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/focuslock_brand.dart';
 import '../../core/widgets/scene_background.dart';
 import '../../data/services/auth_service.dart';
-import '../../data/services/notification_service.dart';
 import '../../data/services/pickup_detector.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
@@ -17,12 +16,15 @@ class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
+  State<SettingsScreen> createState() => SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class SettingsScreenState extends State<SettingsScreen> {
   String _email = '';
   Future<GuardrailStatus>? _guardrailFuture;
+  UserSettings? _draftSettings;
+  UserSettings? _savedSettings;
+  bool _isApplyingChanges = false;
 
   Future<void> _pickHour({
     required TimeOfDay currentTime,
@@ -172,60 +174,145 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return m == 0 ? '${h}h 0m (${minutes} min)' : '${h}h ${m}m (${minutes} min)';
   }
 
-  Future<void> _saveSleepReminder(
-    SettingsProvider sp,
-    UserSettings s, {
-    required TimeOfDay sleepTime,
-  }) async {
-    final updated = s.copyWith(
-      sleepHour: sleepTime.hour,
-      sleepMinute: sleepTime.minute,
-    );
-    final remoteSaved = await sp.update(updated);
-    await NotificationService().requestPermission();
-    await NotificationService().scheduleSleepReminder(
-      sleepHour: updated.sleepHour,
-      sleepMinute: updated.sleepMinute,
-    );
+  bool _sameSettings(UserSettings a, UserSettings b) {
+    if (a.userName != b.userName ||
+        a.dailyLimitMinutes != b.dailyLimitMinutes ||
+        a.cooldownMinutes != b.cooldownMinutes ||
+        a.extraUnlockMinutes != b.extraUnlockMinutes ||
+        a.maxUnlocksPerDay != b.maxUnlocksPerDay ||
+        a.lockScheduleEnabled != b.lockScheduleEnabled ||
+        a.scheduleStartHour != b.scheduleStartHour ||
+        a.scheduleStartMinute != b.scheduleStartMinute ||
+        a.scheduleEndHour != b.scheduleEndHour ||
+        a.scheduleEndMinute != b.scheduleEndMinute ||
+        a.accelerometerEnabled != b.accelerometerEnabled ||
+        a.wakeHour != b.wakeHour ||
+        a.wakeMinute != b.wakeMinute ||
+        a.sleepHour != b.sleepHour ||
+        a.sleepMinute != b.sleepMinute ||
+        a.notificationsEnabled != b.notificationsEnabled) {
+      return false;
+    }
 
-    if (!remoteSaved && mounted) {
+    if (a.monitoredApps.length != b.monitoredApps.length) {
+      return false;
+    }
+    final aApps = List<String>.from(a.monitoredApps)..sort();
+    final bApps = List<String>.from(b.monitoredApps)..sort();
+    for (var i = 0; i < aApps.length; i++) {
+      if (aApps[i] != bApps[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool _hasPendingChanges() {
+    final draft = _draftSettings;
+    final saved = _savedSettings;
+    if (draft == null || saved == null) {
+      return false;
+    }
+    return !_sameSettings(draft, saved);
+  }
+
+  void _updateDraft(UserSettings updated) {
+    setState(() {
+      _draftSettings = updated;
+    });
+  }
+
+  Future<bool> _applyDraftChanges(SettingsProvider sp) async {
+    final draft = _draftSettings;
+    final previous = _savedSettings;
+    if (draft == null || previous == null) {
+      return true;
+    }
+    if (_sameSettings(draft, previous)) {
+      return true;
+    }
+
+    setState(() => _isApplyingChanges = true);
+    final result = await sp.updateWithGuardrails(draft);
+    if (!mounted) {
+      return false;
+    }
+    setState(() {
+      _isApplyingChanges = false;
+      _savedSettings = sp.settings;
+      _draftSettings = sp.settings;
+      _guardrailFuture = sp.getGuardrailStatus();
+    });
+
+    if (result.message != null && result.message!.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Sleep reminder saved on the phone, but the database sync failed.'),
-          backgroundColor: AppTheme.warning,
+        SnackBar(
+          content: Text(result.message!),
+          backgroundColor: result.applied ? AppTheme.success : AppTheme.warning,
         ),
       );
     }
+
+    if (!result.applied) {
+      return false;
+    }
+
+    if (previous.accelerometerEnabled != draft.accelerometerEnabled) {
+      if (draft.accelerometerEnabled) {
+        PickupDetector().start();
+      } else {
+        PickupDetector().stop();
+      }
+    }
+
+    return true;
   }
 
-  Future<void> _setPickupTracking(
-    SettingsProvider sp,
-    UserSettings s,
-    bool enabled,
-  ) async {
-    await sp.update(s.copyWith(accelerometerEnabled: enabled));
-    if (enabled) {
-      PickupDetector().start();
-    } else {
-      PickupDetector().stop();
+  Future<bool> _confirmExitWithApply(SettingsProvider sp) async {
+    if (!_hasPendingChanges()) {
+      return true;
     }
-  }
 
-  Future<void> _applyGuardedUpdate(SettingsProvider sp, UserSettings updated) async {
-    final result = await sp.updateWithGuardrails(updated);
-    if (mounted) {
-      setState(() {
-        _guardrailFuture = sp.getGuardrailStatus();
-      });
-    }
-    if (!mounted || result.message == null || result.message!.isEmpty) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(result.message!),
-        backgroundColor: result.applied ? AppTheme.success : AppTheme.warning,
+    final decision = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Leave settings?'),
+        content: const Text(
+          'You made changes. If you confirm, changes will be applied now. Focus Lock increases and monitored-app reductions will be locked for 30 days from this moment. If you cancel, your pending edits will be discarded.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'discard'),
+            child: const Text('Cancel Changes'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, 'apply'),
+            child: const Text('Confirm & Apply'),
+          ),
+        ],
       ),
     );
+
+    if (!mounted) {
+      return false;
+    }
+
+    if (decision == 'discard') {
+      setState(() {
+        _draftSettings = _savedSettings;
+      });
+      return true;
+    }
+    if (decision != 'apply') {
+      return false;
+    }
+
+    return _applyDraftChanges(sp);
+  }
+
+  Future<bool> confirmExitIfNeeded() async {
+    final sp = context.read<SettingsProvider>();
+    return _confirmExitWithApply(sp);
   }
 
   String _formatDate(DateTime date) {
@@ -237,7 +324,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    _guardrailFuture = context.read<SettingsProvider>().getGuardrailStatus();
+    final sp = context.read<SettingsProvider>();
+    _guardrailFuture = sp.getGuardrailStatus();
+    _savedSettings = sp.settings;
+    _draftSettings = sp.settings;
     _loadEmail();
   }
 
@@ -250,14 +340,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final sp = context.watch<SettingsProvider>();
-    final s = sp.settings;
+    if (_savedSettings == null) {
+      _savedSettings = sp.settings;
+      _draftSettings = sp.settings;
+    }
+    if (!_hasPendingChanges() && !_sameSettings(sp.settings, _savedSettings!)) {
+      _savedSettings = sp.settings;
+      _draftSettings = sp.settings;
+    }
+
+    final s = _draftSettings ?? sp.settings;
     final themeProvider = context.watch<ThemeProvider>();
     final guardrailFuture = _guardrailFuture ?? sp.getGuardrailStatus();
 
-    return SceneBackground(
+    return WillPopScope(
+      onWillPop: () async {
+        final shouldExit = await _confirmExitWithApply(sp);
+        return shouldExit;
+      },
+      child: SceneBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: AppBar(title: const Text('Profile & Settings')),
+        appBar: AppBar(
+          title: const Text('Profile & Settings'),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new_rounded),
+            onPressed: _isApplyingChanges
+                ? null
+                : () async {
+                    final shouldExit = await _confirmExitWithApply(sp);
+                    if (shouldExit && mounted) {
+                      Navigator.pop(context);
+                    }
+                  },
+          ),
+        ),
         body: ListView(
           padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
           children: [
@@ -303,7 +420,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       initialValue: s.dailyLimitMinutes,
                       min: 2,
                       max: 360,
-                      onPicked: (v) => _applyGuardedUpdate(sp, s.copyWith(dailyLimitMinutes: v)),
+                      onPicked: (v) => _updateDraft(s.copyWith(dailyLimitMinutes: v)),
                     ),
                   ),
                   _PickerTile(
@@ -314,7 +431,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       initialValue: s.cooldownMinutes,
                       min: 5,
                       max: 120,
-                      onPicked: (v) => _applyGuardedUpdate(sp, s.copyWith(cooldownMinutes: v)),
+                      onPicked: (v) => _updateDraft(s.copyWith(cooldownMinutes: v)),
                     ),
                   ),
                   _PickerTile(
@@ -325,7 +442,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       initialValue: s.extraUnlockMinutes,
                       min: 5,
                       max: 60,
-                      onPicked: (v) => _applyGuardedUpdate(sp, s.copyWith(extraUnlockMinutes: v)),
+                      onPicked: (v) => _updateDraft(s.copyWith(extraUnlockMinutes: v)),
                     ),
                   ),
                   _StepperTile(
@@ -333,8 +450,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     value: s.maxUnlocksPerDay,
                     min: 1,
                     max: 5,
-                    onDecrement: () => _applyGuardedUpdate(sp, s.copyWith(maxUnlocksPerDay: s.maxUnlocksPerDay - 1)),
-                    onIncrement: () => _applyGuardedUpdate(sp, s.copyWith(maxUnlocksPerDay: s.maxUnlocksPerDay + 1)),
+                    onDecrement: () => _updateDraft(s.copyWith(maxUnlocksPerDay: s.maxUnlocksPerDay - 1)),
+                    onIncrement: () => _updateDraft(s.copyWith(maxUnlocksPerDay: s.maxUnlocksPerDay + 1)),
                   ),
                 ],
               ),
@@ -389,7 +506,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             } else {
                               updated.remove(app.packageName);
                             }
-                            _applyGuardedUpdate(sp, s.copyWith(monitoredApps: updated));
+                            _updateDraft(s.copyWith(monitoredApps: updated));
                           },
                         );
                       }).toList(),
@@ -402,7 +519,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _SectionBlock(
               icon: Icons.schedule_rounded,
               title: 'Automation',
-              subtitle: 'Manage lock windows and sleep reminder',
+              subtitle: 'Manage scheduled lock windows',
               child: Column(
                 children: [
                   Builder(
@@ -448,7 +565,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           subtitle: Text('Only lock during specific hours',
                               style: Theme.of(context).textTheme.bodySmall),
                           value: s.lockScheduleEnabled,
-                          onChanged: (v) => sp.update(s.copyWith(lockScheduleEnabled: v)),
+                          onChanged: (v) => _updateDraft(s.copyWith(lockScheduleEnabled: v)),
                         ),
                         if (s.lockScheduleEnabled) ...[
                           const Divider(height: 1),
@@ -458,7 +575,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             trailing: const Icon(Icons.schedule_rounded),
                             onTap: () => _pickHour(
                               currentTime: TimeOfDay(hour: s.scheduleStartHour, minute: s.scheduleStartMinute),
-                              onPicked: (t) => sp.update(s.copyWith(
+                              onPicked: (t) => _updateDraft(s.copyWith(
                                 scheduleStartHour: t.hour,
                                 scheduleStartMinute: t.minute,
                               )),
@@ -470,29 +587,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             trailing: const Icon(Icons.schedule_rounded),
                             onTap: () => _pickHour(
                               currentTime: TimeOfDay(hour: s.scheduleEndHour, minute: s.scheduleEndMinute),
-                              onPicked: (t) => sp.update(s.copyWith(
+                              onPicked: (t) => _updateDraft(s.copyWith(
                                 scheduleEndHour: t.hour,
                                 scheduleEndMinute: t.minute,
                               )),
                             ),
                           ),
                         ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  _Card(
-                    child: Column(
-                      children: [
-                        ListTile(
-                          title: Text('Sleep reminder', style: Theme.of(context).textTheme.titleMedium),
-                          subtitle: Text(_fmtHour(s.sleepHour, s.sleepMinute), style: Theme.of(context).textTheme.bodySmall),
-                          trailing: const Icon(Icons.nightlight_round),
-                          onTap: () => _pickHour(
-                            currentTime: TimeOfDay(hour: s.sleepHour, minute: s.sleepMinute),
-                            onPicked: (t) => _saveSleepReminder(sp, s, sleepTime: t),
-                          ),
-                        ),
                       ],
                     ),
                   ),
@@ -531,18 +632,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           onChanged: (v) => themeProvider.setDarkMode(v),
                         ),
                         const Divider(height: 1),
-                        ListTile(
-                          title: Text('Notifications', style: Theme.of(context).textTheme.titleMedium),
-                          trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                          onTap: () => Navigator.pushNamed(context, '/notifications'),
-                        ),
-                        const Divider(height: 1),
-                        ListTile(
-                          title: Text('Feedback', style: Theme.of(context).textTheme.titleMedium),
-                          trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                          onTap: () => Navigator.pushNamed(context, '/feedback'),
-                        ),
-                        const Divider(height: 1),
                         SwitchListTile(
                           title: Text('Track Phone Pickups', style: Theme.of(context).textTheme.titleMedium),
                           subtitle: Text(
@@ -550,7 +639,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                           value: s.accelerometerEnabled,
-                          onChanged: (v) => _setPickupTracking(sp, s, v),
+                          onChanged: (v) => _updateDraft(s.copyWith(accelerometerEnabled: v)),
                         ),
                       ],
                     ),
@@ -576,7 +665,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 14),
             ElevatedButton.icon(
-              onPressed: () async {
+              onPressed: _isApplyingChanges
+                  ? null
+                  : () async {
+                final shouldExit = await _confirmExitWithApply(sp);
+                if (!shouldExit || !mounted) {
+                  return;
+                }
                 await AuthService().logout();
                 if (!context.mounted) return;
                 Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
@@ -591,6 +686,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 16),
           ],
         ),
+      ),
       ),
     );
   }

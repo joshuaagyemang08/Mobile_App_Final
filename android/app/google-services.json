@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1073638115593",
+    "project_id": "focuslock-8491a",
+    "storage_bucket": "focuslock-8491a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1073638115593:android:03e370be1d963fddddabd8",
+        "android_client_info": {
+          "package_name": "com.example.focuslock"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD-RBhsg0TUWCFn71-C3bKbrQqZBNUBdOw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -5,6 +5,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/time_utils.dart';
 import '../../core/widgets/pin_prompt_dialog.dart';
 import '../../core/widgets/scene_background.dart';
+import '../../core/widgets/focuslock_brand.dart';
 import '../../providers/usage_provider.dart';
 import '../../providers/settings_provider.dart';
 
@@ -174,41 +175,70 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
         body: SafeArea(
           child: Center(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Container(
+              padding: const EdgeInsets.all(18),
+              child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.96),
-                  borderRadius: BorderRadius.circular(32),
-                  border: Border.all(color: Colors.white.withOpacity(0.85)),
-                  boxShadow: const [
-                    BoxShadow(color: AppTheme.shadow, blurRadius: 30, offset: Offset(0, 16)),
-                  ],
-                ),
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    _buildLockIcon(),
-                    const SizedBox(height: 24),
-                      Text(
-                        'FocusLock activated',
-                        style: Theme.of(context).textTheme.displayMedium?.copyWith(
-                              color: AppTheme.danger,
-                              fontSize: 22,
-                            ),
-                        textAlign: TextAlign.center,
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0F131D).withOpacity(0.94),
+                        borderRadius: BorderRadius.circular(30),
                       ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'You\'ve reached your daily social media limit of ${TimeUtils.formatMinutes(settings.dailyLimitMinutes)}.',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodyMedium,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const FocusLockMark(size: 36),
+                              const SizedBox(width: 10),
+                              Text(
+                                'FocusLock',
+                                style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.white),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 18),
+                          Center(child: _buildLockIcon()),
+                          const SizedBox(height: 18),
+                          Text(
+                            'FocusLock\nactivated',
+                            style: Theme.of(context).textTheme.displayMedium?.copyWith(
+                                  color: Colors.white,
+                                  fontSize: 36,
+                                  height: 1.08,
+                                ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            'You reached your daily social media limit of ${TimeUtils.formatMinutes(settings.dailyLimitMinutes)}.',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF8990A8)),
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 28),
-                    if (!_cooldownExpired) _buildCooldownSection() else _buildUnlockSection(usage, settings),
-                    const SizedBox(height: 18),
-                    _buildMotivationalFooter(),
+                    const SizedBox(height: 14),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(30),
+                        boxShadow: const [
+                          BoxShadow(color: AppTheme.shadow, blurRadius: 24, offset: Offset(0, 12)),
+                        ],
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (!_cooldownExpired) _buildCooldownSection() else _buildUnlockSection(usage, settings),
+                          const SizedBox(height: 18),
+                          _buildMotivationalFooter(),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),

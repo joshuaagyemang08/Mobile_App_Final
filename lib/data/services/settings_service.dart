@@ -2,13 +2,15 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:crypto/crypto.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/time_utils.dart';
 import '../models/user_settings.dart';
-import 'backend_api.dart';
 import 'database_service.dart';
 
 class SettingsService {
@@ -19,11 +21,19 @@ class SettingsService {
   final _secure = const FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
+  final _auth = FirebaseAuth.instance;
+  final _firestore = FirebaseFirestore.instance;
   String? _lastUnlockError;
 
   String? get lastUnlockError => _lastUnlockError;
 
-  Future<String?> _token() => _secure.read(key: AppConstants.backendTokenKey);
+  DocumentReference<Map<String, dynamic>>? _userDoc() {
+    final user = _auth.currentUser;
+    if (user == null) {
+      return null;
+    }
+    return _firestore.collection('users').doc(user.uid);
+  }
 
   Future<void> clearLocalUserStateForAccountSwitch() async {
     final prefs = await SharedPreferences.getInstance();
@@ -103,48 +113,51 @@ class SettingsService {
   Future<bool> saveSettings(UserSettings s) async {
     await _cacheSettings(s);
 
-    final token = await _token();
-    if (token == null || token.isEmpty) {
+    final doc = _userDoc();
+    if (doc == null) {
       return false;
     }
 
     try {
-      final response = await BackendApi.postJson(
-        '/api/settings_save.php',
-        s.toJson(),
-        token: token,
-      );
-      await _cacheLockStateFromResponse(response);
-      return response['success'] == true;
+      await doc.set({
+        'settings': s.toJson(),
+        'displayName': s.userName,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      return true;
     } catch (_) {
-      // Keep the local cache as the source of truth if the network is unavailable.
+      // Keep the local cache as the source of truth if the cloud is unavailable.
       return false;
     }
-
-    return false;
   }
 
   Future<UserSettings?> _loadRemoteSettings() async {
-    final token = await _token();
-    if (token == null || token.isEmpty) {
+    final doc = _userDoc();
+    if (doc == null) {
       return null;
     }
 
     try {
-      final response = await BackendApi.getJson('/api/settings_get.php', token: token);
-      if (response['success'] != true) {
+      final snapshot = await doc.get();
+      final data = snapshot.data();
+      if (data == null) {
         return null;
       }
 
-      await _cacheLockStateFromResponse(response);
+      final lockState = data['lockState'];
+      if (lockState is Map<String, dynamic>) {
+        await _cacheLockState(lockState);
+      } else if (lockState is Map) {
+        await _cacheLockState(Map<String, dynamic>.from(lockState));
+      }
 
-      final settingsJson = response['settings'];
+      final settingsJson = data['settings'];
       if (settingsJson is Map<String, dynamic>) {
         final settingsMap = Map<String, dynamic>.from(settingsJson);
         final settings = await _applyLocalFallbackFromCache(UserSettings.fromJson(settingsMap));
-        final user = response['user'];
-        if (user is Map<String, dynamic> && (user['displayName'] ?? '').toString().trim().isNotEmpty) {
-          return settings.copyWith(userName: user['displayName'].toString());
+        final displayName = (data['displayName'] ?? '').toString().trim();
+        if (displayName.isNotEmpty) {
+          return settings.copyWith(userName: displayName);
         }
         return settings;
       }
@@ -210,23 +223,33 @@ class SettingsService {
   }
 
   Future<void> syncRemoteLockState() async {
-    final token = await _token();
-    if (token == null || token.isEmpty) {
+    final doc = _userDoc();
+    if (doc == null) {
       return;
     }
 
     try {
-      final response = await BackendApi.getJson('/api/lock_state_get.php', token: token);
-      await _cacheLockStateFromResponse(response);
+      final snapshot = await doc.get();
+      final data = snapshot.data();
+      if (data == null) {
+        return;
+      }
+
+      final lockState = data['lockState'];
+      if (lockState is Map<String, dynamic>) {
+        await _cacheLockState(lockState);
+      } else if (lockState is Map) {
+        await _cacheLockState(Map<String, dynamic>.from(lockState));
+      }
     } catch (_) {
-      // Keep local state when network is unavailable.
+      // Keep local state when cloud is unavailable.
     }
   }
 
   Future<bool> useUnlock() async {
     _lastUnlockError = null;
-    final token = await _token();
-    if (token == null || token.isEmpty) {
+    final doc = _userDoc();
+    if (doc == null) {
       _lastUnlockError = 'Session missing. Please sign in again.';
       return false;
     }
@@ -234,24 +257,76 @@ class SettingsService {
     await syncRemoteLockState();
 
     try {
-      final response = await BackendApi.postJson('/api/use_unlock.php', const {}, token: token);
-      if (response['success'] == true) {
+      final txResult = await _firestore.runTransaction<Map<String, dynamic>>((transaction) async {
+        final snapshot = await transaction.get(doc);
+        final data = snapshot.data() ?? <String, dynamic>{};
+
+        final settingsRaw = data['settings'];
+        final settingsMap = settingsRaw is Map<String, dynamic>
+            ? settingsRaw
+            : settingsRaw is Map
+                ? Map<String, dynamic>.from(settingsRaw)
+                : <String, dynamic>{};
+
+        final lockStateRaw = data['lockState'];
+        final lockState = lockStateRaw is Map<String, dynamic>
+            ? Map<String, dynamic>.from(lockStateRaw)
+            : lockStateRaw is Map
+                ? Map<String, dynamic>.from(lockStateRaw)
+                : <String, dynamic>{};
+
+        final today = TimeUtils.todayKey();
+        var unlockDayKey = (lockState['unlockDayKey'] ?? '').toString();
+        var todayUnlockCount = _asInt(lockState['todayUnlockCount'], 0);
+        if (unlockDayKey != today) {
+          unlockDayKey = today;
+          todayUnlockCount = 0;
+        }
+
+        final maxUnlocksPerDay = _asInt(settingsMap['maxUnlocksPerDay'], AppConstants.defaultMaxUnlocksPerDay);
+        if (todayUnlockCount >= maxUnlocksPerDay) {
+          return {
+            'success': false,
+            'message': 'Daily unlock limit reached.',
+            'lockState': lockState,
+          };
+        }
+
+        final updatedLockState = <String, dynamic>{
+          ...lockState,
+          'todayUnlockCount': todayUnlockCount + 1,
+          'unlockDayKey': today,
+          'cooldownActive': false,
+          'cooldownEndAt': null,
+        };
+
+        transaction.set(doc, {
+          'lockState': updatedLockState,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        return {
+          'success': true,
+          'lockState': updatedLockState,
+        };
+      });
+
+      if (txResult['success'] == true) {
         await _setLockedLocal(false);
-        await _cacheLockStateFromResponse(response);
+        await _cacheLockStateFromResponse(txResult);
         return true;
       }
-      await _cacheLockStateFromResponse(response);
-      final message = (response['message'] ?? '').toString().trim();
-      _lastUnlockError = message.isNotEmpty
-          ? message
-          : 'Unlock failed. Please try again.';
+
+      await _cacheLockStateFromResponse(txResult);
+      final message = (txResult['message'] ?? '').toString().trim();
+      _lastUnlockError = message.isNotEmpty ? message : 'Unlock failed. Please try again.';
       return false;
     } catch (e) {
       if (e is TimeoutException) {
         _lastUnlockError = 'Request timed out. Please check internet and try again.';
         return false;
       }
-      _lastUnlockError = 'Network error while consuming unlock. Please try again.';
+      _lastUnlockError = 'Cloud sync error while consuming unlock. Please try again.';
       return false;
     }
   }
@@ -304,24 +379,86 @@ class SettingsService {
   // ── PIN (secure storage) ────────────────────────────────
 
   Future<void> savePin(String pin) async {
-    final isValidPin = pin.length == AppConstants.pinLength && RegExp(r'^\d+$').hasMatch(pin);
+    final normalized = pin.trim();
+    final isValidPin = normalized.length == AppConstants.pinLength && RegExp(r'^\d+$').hasMatch(normalized);
     if (!isValidPin) {
       throw ArgumentError('PIN must be exactly ${AppConstants.pinLength} digits.');
     }
-    await _secure.write(key: AppConstants.securePin, value: pin);
+    await _secure.write(key: AppConstants.securePin, value: normalized);
+
+    final user = _auth.currentUser;
+    final doc = _userDoc();
+    if (user != null && doc != null) {
+      await doc.set({
+        'security': {
+          'pinHash': _hashPin(normalized, user.uid),
+          'pinUpdatedAt': FieldValue.serverTimestamp(),
+        },
+      }, SetOptions(merge: true));
+    }
   }
 
   Future<String?> getPin() async {
     return _secure.read(key: AppConstants.securePin);
   }
 
+  Future<bool> hasPin() async {
+    final stored = await getPin();
+    return stored != null && stored.isNotEmpty;
+  }
+
   Future<bool> verifyPin(String input) async {
-    final isValidPin = input.length == AppConstants.pinLength && RegExp(r'^\d+$').hasMatch(input);
+    final normalized = input.trim();
+    final isValidPin = normalized.length == AppConstants.pinLength && RegExp(r'^\d+$').hasMatch(normalized);
     if (!isValidPin) {
       return false;
     }
+
     final stored = await getPin();
-    return stored != null && stored == input;
+    if (stored != null && stored == normalized) {
+      return true;
+    }
+
+    final user = _auth.currentUser;
+    final doc = _userDoc();
+    if (user == null || doc == null) {
+      return false;
+    }
+
+    try {
+      final snapshot = await doc.get();
+      final data = snapshot.data();
+      if (data == null) {
+        return false;
+      }
+
+      final security = data['security'];
+      String? remoteHash;
+      if (security is Map<String, dynamic>) {
+        remoteHash = security['pinHash']?.toString();
+      } else if (security is Map) {
+        remoteHash = security['pinHash']?.toString();
+      }
+
+      if (remoteHash == null || remoteHash.isEmpty) {
+        return false;
+      }
+
+      final computed = _hashPin(normalized, user.uid);
+      if (computed == remoteHash) {
+        await _secure.write(key: AppConstants.securePin, value: normalized);
+        return true;
+      }
+    } catch (_) {
+      return false;
+    }
+
+    return false;
+  }
+
+  String _hashPin(String pin, String uid) {
+    final bytes = utf8.encode('$uid:$pin');
+    return sha256.convert(bytes).toString();
   }
 
   // ── LOCK STATE ──────────────────────────────────────────
@@ -360,20 +497,32 @@ class SettingsService {
   }
 
   Future<void> _syncRemoteLockStateOnLockChange(bool locked) async {
-    final token = await _token();
-    if (token == null || token.isEmpty) {
+    final doc = _userDoc();
+    if (doc == null) {
       return;
     }
 
     try {
-      final response = await BackendApi.postJson(
-        '/api/lock_state_set.php',
-        {'locked': locked},
-        token: token,
-      );
-      await _cacheLockStateFromResponse(response);
+      final prefs = await SharedPreferences.getInstance();
+      final cachedUnlockCount = prefs.getInt(AppConstants.keyTodayUnlockCount) ?? 0;
+      final cachedUnlockDayKey = prefs.getString(AppConstants.keyLastUnlockDate) ?? TimeUtils.todayKey();
+      final cooldownEnd = prefs.getString(AppConstants.keyCooldownEndTime);
+
+      final lockState = <String, dynamic>{
+        'todayUnlockCount': cachedUnlockCount,
+        'unlockDayKey': cachedUnlockDayKey,
+        'cooldownActive': locked,
+        'cooldownEndAt': locked ? cooldownEnd : null,
+      };
+
+      await doc.set({
+        'lockState': lockState,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      await _cacheLockState(lockState);
     } catch (_) {
-      // Keep local lock state when network is unavailable.
+      // Keep local lock state when cloud is unavailable.
     }
   }
 
@@ -442,6 +591,19 @@ class SettingsService {
     if (lockState is Map) {
       await _cacheLockState(Map<String, dynamic>.from(lockState));
     }
+  }
+
+  int _asInt(dynamic value, int fallback) {
+    if (value is int) {
+      return value;
+    }
+    if (value is double) {
+      return value.toInt();
+    }
+    if (value is String) {
+      return int.tryParse(value) ?? fallback;
+    }
+    return fallback;
   }
 
   Future<void> _cacheLockState(Map<String, dynamic> lockState) async {

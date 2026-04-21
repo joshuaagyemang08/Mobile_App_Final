@@ -82,7 +82,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
     bool ok = false;
     bool remotelyOnboarded = false;
-    String? emailForOtp = _emailCtrl.text.trim().toLowerCase();
     if (_tab == AuthTab.login) {
       final result = await _auth.login(
         email: _emailCtrl.text,
@@ -92,20 +91,19 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       setState(() => _loading = false);
 
-      if (result.requiresOtp) {
-        if (!mounted) return;
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => VerifyEmailOtpScreen(email: emailForOtp),
-          ),
-        );
-        return;
-      }
-
       ok = result.success;
 
       if (!ok) {
+        if (result.requiresOtp) {
+          if (!mounted) return;
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => VerifyEmailOtpScreen(email: _emailCtrl.text.trim().toLowerCase()),
+            ),
+          );
+          return;
+        }
         setState(() => _error = result.message.isNotEmpty ? result.message : 'Wrong credentials. Check email/password.');
         return;
       }
@@ -128,17 +126,35 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _loading = false);
 
       if (!result.success) {
+        if (result.requiresOtp) {
+          if (!mounted) return;
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => VerifyEmailOtpScreen(email: _emailCtrl.text.trim().toLowerCase(), autoSend: false),
+            ),
+          );
+          return;
+        }
         setState(() => _error = result.message.isNotEmpty ? result.message : 'Could not create account.');
         return;
       }
 
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => VerifyEmailOtpScreen(email: emailForOtp, autoSend: false),
-        ),
-      );
-      return;
+      if (result.requiresOtp) {
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => VerifyEmailOtpScreen(email: _emailCtrl.text.trim().toLowerCase(), autoSend: false),
+          ),
+        );
+        return;
+      }
+
+      ok = true;
+      if (result.settings != null) {
+        remotelyOnboarded = SettingsService.looksLikeOnboardedProfile(result.settings!);
+      }
     }
 
     final settingsService = SettingsService();
@@ -350,20 +366,6 @@ class _LoginScreenState extends State<LoginScreen> {
                                           child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                                         )
                                       : Text(_tab == AuthTab.login ? 'Login' : 'Create Account'),
-                                ),
-                                const SizedBox(height: 16),
-                                Row(
-                                  children: [
-                                    const Expanded(child: Divider()),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                                      child: Text(
-                                        'Or login with',
-                                        style: Theme.of(context).textTheme.bodySmall,
-                                      ),
-                                    ),
-                                    const Expanded(child: Divider()),
-                                  ],
                                 ),
                               ],
                             ),

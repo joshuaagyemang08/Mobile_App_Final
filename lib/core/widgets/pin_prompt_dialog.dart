@@ -64,6 +64,16 @@ class _PinPromptDialogState extends State<_PinPromptDialog> {
 
     _focusNode.unfocus();
 
+    final hasPin = await _service.hasPin();
+    if (!mounted) return;
+    if (!hasPin) {
+      setState(() {
+        _isVerifying = false;
+        _error = 'No PIN is saved on this install yet. Use Forgot PIN to create one.';
+      });
+      return;
+    }
+
     final ok = await _service.verifyPin(_pinCtrl.text);
     if (!mounted) return;
 

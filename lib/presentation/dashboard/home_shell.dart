@@ -6,8 +6,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/services/pickup_detector.dart';
 import '../../data/services/tracking_service.dart';
 import '../../core/widgets/pin_prompt_dialog.dart';
+import '../../providers/settings_provider.dart';
 import '../../providers/usage_provider.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../history/history_screen.dart';
@@ -25,19 +27,26 @@ class _HomeShellState extends State<HomeShell> {
   bool _settingsPromptOpen = false;
   bool _accessibilityEnabled = true;
   Timer? _accessibilityCheckTimer;
+  final GlobalKey<SettingsScreenState> _settingsScreenKey = GlobalKey<SettingsScreenState>();
 
   static const _platform = MethodChannel('com.focuslock.app/permissions');
   static const String _keyAccessibilityStatus = 'flutter.accessibility_enabled';
 
-  final _pages = const [
-    DashboardScreen(),
-    HistoryScreen(),
-    SettingsScreen(),
-  ];
+  late final List<Widget> _pages;
 
   @override
   void initState() {
     super.initState();
+    PickupDetector().setOnPickupCallback(_handlePickupDetected);
+    _pages = [
+      const DashboardScreen(),
+      const HistoryScreen(),
+      SettingsScreen(key: _settingsScreenKey),
+    ];
+    final settings = context.read<SettingsProvider>().settings;
+    if (AppConstants.enableTracking && settings.accelerometerEnabled) {
+      PickupDetector().start();
+    }
     _checkAccessibilityStatus();
     _accessibilityCheckTimer = Timer.periodic(
       const Duration(seconds: 30),
@@ -86,10 +95,16 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void dispose() {
     _accessibilityCheckTimer?.cancel();
+    PickupDetector().setOnPickupCallback(null);
     if (AppConstants.enableTracking) {
       FlutterForegroundTask.removeTaskDataCallback(_handleTaskData);
     }
     super.dispose();
+  }
+
+  void _handlePickupDetected() {
+    if (!mounted) return;
+    context.read<UsageProvider>().refreshPickupCount();
   }
 
   Future<void> _openSettingsWithPin() async {
@@ -110,6 +125,33 @@ class _HomeShellState extends State<HomeShell> {
     }
     if (result != PinPromptResult.success) return;
     setState(() => _currentIndex = 2);
+  }
+
+  Future<void> _onDestinationSelected(int i) async {
+    if (i == _currentIndex) {
+      return;
+    }
+
+    if (i == 2) {
+      await _openSettingsWithPin();
+      return;
+    }
+
+    if (_currentIndex == 2) {
+      final settingsState = _settingsScreenKey.currentState;
+      if (settingsState != null) {
+        final canLeave = await settingsState.confirmExitIfNeeded();
+        if (!canLeave) {
+          return;
+        }
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() => _currentIndex = i);
   }
 
   @override
@@ -198,13 +240,7 @@ class _HomeShellState extends State<HomeShell> {
               ),
               child: NavigationBar(
                 selectedIndex: _currentIndex,
-                onDestinationSelected: (i) {
-                  if (i == 2 && _currentIndex != 2) {
-                    _openSettingsWithPin();
-                    return;
-                  }
-                  setState(() => _currentIndex = i);
-                },
+                onDestinationSelected: _onDestinationSelected,
                 height: 70,
                 destinations: const [
                   NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),

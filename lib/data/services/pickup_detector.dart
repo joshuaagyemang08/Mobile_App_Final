@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'settings_service.dart';
 
@@ -14,6 +15,7 @@ class PickupDetector {
 
   StreamSubscription? _sub;
   final _settings = SettingsService();
+  VoidCallback? _onPickup;
 
   double _lastMagnitude = 0;
   DateTime? _lastPickupTime;
@@ -24,12 +26,16 @@ class PickupDetector {
   static const Duration _stableDuration = Duration(milliseconds: 1200);
   static const Duration _cooldown = Duration(seconds: 10); // min gap between pickups
 
+  void setOnPickupCallback(VoidCallback? callback) {
+    _onPickup = callback;
+  }
+
   void start() {
     _lastMagnitude = 0;
     _lastPickupTime = null;
     _stationarySince = null;
     _armed = false;
-    _sub ??= userAccelerometerEventStream().listen((event) {
+    _sub ??= userAccelerometerEventStream().listen((event) async {
       final magnitude = sqrt(
         event.x * event.x + event.y * event.y + event.z * event.z,
       );
@@ -64,7 +70,8 @@ class PickupDetector {
 
       _lastPickupTime = now;
       _armed = false;
-      _settings.recordPickup();
+      await _settings.recordPickup();
+      _onPickup?.call();
     });
   }
 

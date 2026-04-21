@@ -36,13 +36,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Future<void> _preview() async {
     await NotificationService().showPreviewNotification(
       title: 'FocusLock Preview',
-      body: 'This is how your reminders will appear.',
+      body: 'This is how FocusLock notifications appear.',
     );
-    await _refreshDiagnostics();
-  }
-
-  Future<void> _testSleepReminder() async {
-    await NotificationService().sendTestSleepReminderNow();
     await _refreshDiagnostics();
   }
 
@@ -53,10 +48,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   Future<void> _setAppNotifications(SettingsProvider sp, bool enabled) async {
     await sp.update(sp.settings.copyWith(notificationsEnabled: enabled));
-    await NotificationService().scheduleSleepReminder(
-      sleepHour: sp.settings.sleepHour,
-      sleepMinute: sp.settings.sleepMinute,
-    );
     await _refreshDiagnostics();
   }
 
@@ -84,7 +75,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 contentPadding: EdgeInsets.zero,
                 title: Text('App notifications', style: Theme.of(context).textTheme.titleMedium),
                 subtitle: Text(
-                  'Controls limit alerts and the sleep reminder automation.',
+                  'Controls FocusLock app notifications.',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
                 value: sp.settings.notificationsEnabled,
@@ -98,11 +89,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ),
             const SizedBox(height: 10),
             ElevatedButton(
-              onPressed: _testSleepReminder,
-              child: const Text('Trigger Banner Test Notification'),
-            ),
-            const SizedBox(height: 10),
-            ElevatedButton(
               onPressed: _preview,
               child: const Text('Send Preview Notification'),
             ),
@@ -113,7 +99,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ),
             const SizedBox(height: 14),
             Text(
-              'Note: sleep reminder sound depends on your phone notification channel settings and Do Not Disturb rules.',
+              'Tip: if notifications do not show, check app notification permission and channel settings.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
@@ -152,8 +138,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           _diagLine('App notifications', d['appNotificationsEnabled'] ?? 'Yes'),
           _diagLine('Local timezone', d['localTimezone'] ?? 'Unknown'),
           _diagLine('Pending scheduled count', d['pendingCount'] ?? '0'),
-          _diagLine('Sleep scheduled (id 8102)', d['sleepScheduled'] ?? 'No'),
-          _diagLine('Sleep reminder next at', d['sleepAt'] ?? 'Unknown'),
         ],
       ),
     );

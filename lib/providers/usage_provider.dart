@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:app_usage/app_usage.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import '../data/services/settings_service.dart';
 import '../data/services/notification_service.dart';
 import '../data/services/database_service.dart';
+import '../data/services/tracking_service.dart';
 import '../data/models/app_usage_model.dart';
 import '../data/models/user_settings.dart';
 import '../core/constants/app_constants.dart';
@@ -79,6 +81,10 @@ class UsageProvider extends ChangeNotifier {
     await _settingsService.syncRemoteLockState();
     final settings = await _settingsService.loadSettings();
 
+    if (AppConstants.enableTracking && !await FlutterForegroundTask.isRunningService) {
+      await TrackingService().start();
+    }
+
     if (!AppConstants.enableTracking) {
       _isLocked = await _settingsService.isLocked();
       _cooldownEndTime = await _settingsService.getCooldownEndTime();
@@ -97,13 +103,14 @@ class UsageProvider extends ChangeNotifier {
     _cooldownEndTime = await _settingsService.getCooldownEndTime();
     _isCooldownExpired = await _settingsService.isCooldownExpired();
 
-    // Pull from DB (already written by background service)
+    // Pull from DB first so we always have something to show.
     _todayEntries = await _db.getUsageForDate(TimeUtils.todayKey());
     _totalMinutesToday = _todayEntries.fold(0, (s, e) => s + e.durationMinutes);
     _todayPickupCount = await _settingsService.getTodayPickupCount();
 
-    // If DB empty (service not started yet), query directly
-    if (_todayEntries.isEmpty && monitoredApps.isNotEmpty) {
+    // Always try a live pull so the UI stays current even if the foreground
+    // service misses a cycle or restarts late.
+    if (monitoredApps.isNotEmpty) {
       await _fetchDirect(monitoredApps);
     }
 
@@ -122,7 +129,7 @@ class UsageProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _fetchDirect(List<String> monitoredApps) async {
+  Future<bool> _fetchDirect(List<String> monitoredApps) async {
     try {
       final now = DateTime.now();
       final start = DateTime(now.year, now.month, now.day);
@@ -134,17 +141,23 @@ class UsageProvider extends ChangeNotifier {
           final minutes = info.usage.inMinutes;
           total += minutes;
           final socialApp = SocialApps.fromPackage(info.packageName);
+          final appName = socialApp?.displayName ?? info.appName;
           entries.add(AppUsageEntry(
             date: TimeUtils.todayKey(),
             packageName: info.packageName,
-            appName: socialApp?.displayName ?? info.appName,
+            appName: appName,
             durationMinutes: minutes,
           ));
+
+          // Keep History in sync even when foreground direct polling is used.
+          await _db.upsertUsage(info.packageName, appName, minutes);
         }
       }
       _totalMinutesToday = total;
       _todayEntries = entries..sort((a, b) => b.durationMinutes.compareTo(a.durationMinutes));
+      return true;
     } catch (_) {}
+    return false;
   }
 
   Future<bool> unlock() async {

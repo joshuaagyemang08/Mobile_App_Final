@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'dart:async';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/time_utils.dart';
 import '../../core/widgets/scene_background.dart';
@@ -17,16 +18,31 @@ class _HistoryScreenState extends State<HistoryScreen> {
   final _db = DatabaseService();
   List<DailyUsageSummary>? _summaries;
   int _selectedDayIndex = 6; // default to today
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) => _load());
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
     final data = await _db.getLast7Days();
-    if (mounted) setState(() => _summaries = data);
+    if (mounted) {
+      setState(() {
+        _summaries = data;
+        if (_selectedDayIndex >= data.length) {
+          _selectedDayIndex = data.isEmpty ? 0 : data.length - 1;
+        }
+      });
+    }
   }
 
   @override
@@ -37,17 +53,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
         appBar: AppBar(title: const Text('Usage History')),
         body: _summaries == null
             ? const Center(child: CircularProgressIndicator())
-            : ListView(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-                children: [
-                  _buildInsightStrip(),
-                  const SizedBox(height: 16),
-                  _buildBarChart(),
-                  const SizedBox(height: 20),
-                  _buildDaySelector(),
-                  const SizedBox(height: 16),
-                  _buildDayBreakdown(),
-                ],
+            : RefreshIndicator(
+                onRefresh: _load,
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                  children: [
+                    _buildInsightStrip(),
+                    const SizedBox(height: 16),
+                    _buildBarChart(),
+                    const SizedBox(height: 20),
+                    _buildDaySelector(),
+                    const SizedBox(height: 16),
+                    _buildDayBreakdown(),
+                  ],
+                ),
               ),
       ),
     );
