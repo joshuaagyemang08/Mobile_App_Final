@@ -71,6 +71,10 @@ class TrackingTaskHandler extends TaskHandler {
         );
 
     var isLocked = await _settings.isLocked();
+    final cooldownEndTime = await _settings.getCooldownEndTime();
+    if (isLocked && cooldownEndTime != null) {
+      await _notif.maybeShowCooldownComplete(cooldownEndTime: cooldownEndTime);
+    }
     if (inScheduledWindow) {
       if (!isLocked) {
         final cooldownMinutes = prefs.getInt(AppConstants.keyCooldownMinutes) ?? AppConstants.defaultCooldownMinutes;

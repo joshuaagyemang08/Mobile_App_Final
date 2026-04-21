@@ -56,6 +56,8 @@ class AppConstants {
   static const int notifIdApproaching75 = 1;
   static const int notifIdApproaching90 = 2;
   static const int notifIdLimitReached = 3;
+  static const int notifIdCooldownComplete = 4;
+  static const int notifIdUnlockUsed = 5;
   static const int notifIdForegroundService = 999;
 
   // Security questions

@@ -41,7 +41,13 @@ class _HomeShellState extends State<HomeShell> {
     _pages = [
       const DashboardScreen(),
       const HistoryScreen(),
-      SettingsScreen(key: _settingsScreenKey),
+      SettingsScreen(
+        key: _settingsScreenKey,
+        onBackRequested: () async {
+          if (!mounted) return;
+          setState(() => _currentIndex = 0);
+        },
+      ),
     ];
     final settings = context.read<SettingsProvider>().settings;
     if (AppConstants.enableTracking && settings.accelerometerEnabled) {

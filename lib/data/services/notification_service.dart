@@ -19,6 +19,7 @@ class NotificationService {
   static const _keyLast75AlertDate = 'notif_last_75_alert_date';
   static const _keyLast90AlertDate = 'notif_last_90_alert_date';
   static const _keyLastLimitAlertDate = 'notif_last_limit_alert_date';
+  static const _keyLastCooldownCompleteAlertEndTime = 'notif_last_cooldown_complete_end_time';
   static const _alertsChannelId = 'focuslock_alerts_v4';
   static const _bannerNotificationDetails = NotificationDetails(
     android: AndroidNotificationDetails(
@@ -99,12 +100,43 @@ class NotificationService {
   }
 
   Future<void> showLimitReached() async {
-    // Limit reached is CRITICAL - always show regardless of toggle
+    if (!await _automatedNotificationsEnabled()) return;
     await _show(
       id: AppConstants.notifIdLimitReached,
       title: 'FocusLock activated',
       body: 'Daily limit reached. Social media is now locked. Stay focused!',
     );
+  }
+
+  Future<void> showCooldownComplete() async {
+    if (!await _automatedNotificationsEnabled()) return;
+    await _show(
+      id: AppConstants.notifIdCooldownComplete,
+      title: 'Cooldown complete',
+      body: 'Your cooldown has ended. Open FocusLock to reveal your unlock code.',
+    );
+  }
+
+  Future<void> showUnlockUsed() async {
+    if (!await _automatedNotificationsEnabled()) return;
+    await _show(
+      id: AppConstants.notifIdUnlockUsed,
+      title: 'Unlock used',
+      body: 'One unlock was consumed for today.',
+    );
+  }
+
+  Future<void> maybeShowCooldownComplete({required DateTime? cooldownEndTime}) async {
+    if (!await _automatedNotificationsEnabled()) return;
+    if (cooldownEndTime == null) return;
+    if (!DateTime.now().isAfter(cooldownEndTime)) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final marker = cooldownEndTime.toIso8601String();
+    if (prefs.getString(_keyLastCooldownCompleteAlertEndTime) == marker) return;
+
+    await showCooldownComplete();
+    await prefs.setString(_keyLastCooldownCompleteAlertEndTime, marker);
   }
 
   Future<void> cancelAll() async {

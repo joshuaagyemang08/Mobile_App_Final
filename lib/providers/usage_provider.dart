@@ -169,6 +169,8 @@ class UsageProvider extends ChangeNotifier {
       return false;
     }
 
+    await NotificationService().showUnlockUsed();
+
     await _settingsService.setLocked(false);
     _isLocked = false;
     _cooldownEndTime = null;
@@ -197,6 +199,8 @@ class UsageProvider extends ChangeNotifier {
       );
     }
     await _applyLockIfLimitReached();
+    // Also check if we should unlock (usage may have dropped back below limit)
+    await _syncScheduledLock(settings);
     notifyListeners();
   }
 

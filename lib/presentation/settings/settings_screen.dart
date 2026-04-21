@@ -13,7 +13,9 @@ import '../../providers/theme_provider.dart';
 import '../../data/models/user_settings.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.onBackRequested});
+
+  final Future<void> Function()? onBackRequested;
 
   @override
   State<SettingsScreen> createState() => SettingsScreenState();
@@ -356,7 +358,16 @@ class SettingsScreenState extends State<SettingsScreen> {
     return WillPopScope(
       onWillPop: () async {
         final shouldExit = await _confirmExitWithApply(sp);
-        return shouldExit;
+        if (!shouldExit) {
+          return false;
+        }
+
+        if (widget.onBackRequested != null) {
+          await widget.onBackRequested!();
+          return false;
+        }
+
+        return true;
       },
       child: SceneBackground(
       child: Scaffold(
@@ -369,7 +380,13 @@ class SettingsScreenState extends State<SettingsScreen> {
                 ? null
                 : () async {
                     final shouldExit = await _confirmExitWithApply(sp);
-                    if (shouldExit && mounted) {
+                    if (!shouldExit || !mounted) {
+                      return;
+                    }
+
+                    if (widget.onBackRequested != null) {
+                      await widget.onBackRequested!();
+                    } else {
                       Navigator.pop(context);
                     }
                   },
@@ -622,6 +639,16 @@ class SettingsScreenState extends State<SettingsScreen> {
                   _Card(
                     child: Column(
                       children: [
+                        SwitchListTile(
+                          title: Text('Notifications', style: Theme.of(context).textTheme.titleMedium),
+                          subtitle: Text(
+                            'Show limit alerts, cooldown complete, and unlock banners',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          value: s.notificationsEnabled,
+                          onChanged: (v) => _updateDraft(s.copyWith(notificationsEnabled: v)),
+                        ),
+                        const Divider(height: 1),
                         SwitchListTile(
                           title: Text('Dark Theme', style: Theme.of(context).textTheme.titleMedium),
                           subtitle: Text(

@@ -78,13 +78,6 @@ class ProfileScreen extends StatelessWidget {
               subtitle: 'Tell us what to improve next',
               onTap: () => Navigator.pushNamed(context, '/feedback'),
             ),
-            const SizedBox(height: 10),
-            _ProfileActionTile(
-              icon: Icons.edit_calendar_rounded,
-              title: 'Edit Wake & Sleep',
-              subtitle: 'Fine tune your daily rhythm in Settings',
-              onTap: () => Navigator.pushNamed(context, '/settings-jump'),
-            ),
           ],
         ),
       ),
