@@ -17,7 +17,7 @@ FocusLock is a Flutter-based mobile app that helps users build better focus habi
 ## Technologies Used
 
 - **Dart / Flutter** – Cross-platform mobile development
-- **Local Data Storage:** [LiftStore](https://pub.dev/packages/lift) (or similar) for persisting data on the device
+- **Local Data Storage:** For persisting data on the device
 - **Firebase:** For user credentials, authentication, and cross-device sync
 
 ---
